@@ -1,0 +1,4 @@
+# Backend (reference / front-end development).
+# On the real ETL machine, add: psycopg[binary], psycopg_pool  (PostgreSQL).
+fastapi>=0.110
+uvicorn[standard]>=0.29

@@ -1,1 +1,19 @@
-"path/to/yourfile.txt" 
+frontend_session_context.json
+
+# Generated reference DB (rebuild with: python src/db/build_reference_db.py)
+/data/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Next.js / Node
+node_modules/
+web/apps/*/.next/
+web/apps/*/out/
+
+# Packaged dashboard bundles (distribute via GitHub Releases, not git)
+web/apps/*/*.zip
+
