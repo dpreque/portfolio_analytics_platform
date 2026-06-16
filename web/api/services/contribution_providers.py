@@ -23,7 +23,7 @@ import os
 import sqlite3
 from typing import Protocol
 
-from src.db.session import get_connection
+from src.db.connection import get_connection
 
 logger = logging.getLogger(__name__)
 

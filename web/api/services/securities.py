@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import logging
 
-from src.db.session import get_connection
+from src.db.connection import get_connection
 
 logger = logging.getLogger(__name__)
 

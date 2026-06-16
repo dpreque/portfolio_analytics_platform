@@ -1,6 +1,6 @@
-# src/db/session.py
+# src/db/connection.py
 # ---------------------------------------------------------------------------
-# Reference DB session layer (SQLite) for FRONT-END DEVELOPMENT ONLY.
+# Reference DB connection layer (SQLite) for FRONT-END DEVELOPMENT ONLY.
 # ---------------------------------------------------------------------------
 # Mirrors the contract documented for the real ETL backend so service code
 # reads identically against either store:
@@ -30,7 +30,7 @@ from typing import Iterator
 
 logger = logging.getLogger(__name__)
 
-# Repo root is two levels up from this file (src/db/session.py -> repo root).
+# Repo root is two levels up from this file (src/db/connection.py -> repo root).
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _DEFAULT_DB_PATH = _REPO_ROOT / "data" / "reference.db"
 

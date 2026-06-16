@@ -1,192 +1,153 @@
 // web/apps/dashboards/app/prices/page.js
 // ---------------------------------------------------------------------------
-// Price Viewer (by source): pick a security + date range, overlay one price line
-// per source so cross-source dispersion is visible at a glance.
+// Price Viewer (by source): a security's price history, one line per source.
+// Range comes from the global header (period). Keeps the Bloomberg-style hover
+// tooltip + crosshair + x-axis date tag, adds a KPI bar and a source-comparison
+// table below the chart.
 //
-// Hover UX is modelled on institutional charting (Bloomberg-style): a dark,
-// multi-line tooltip (Source / Date / Return / Price) snapped to the exact data
-// point, with a dotted crosshair across both axes. All of it is native Plotly
-// (hovertemplate + customdata + axis spikes) -- no custom DOM/JS.
+// NOTE on sources: the reference data has price sources bloomberg / sbs /
+// scraper (FMS is a *positions* source, not a price source). The comparison
+// table therefore compares Bloomberg against the next available price source.
 // ---------------------------------------------------------------------------
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useEffect, useState, useMemo } from 'react';
 import dynamic from 'next/dynamic';
-import { apiGet } from '../../lib/api';
-import DateRangePicker from '../../components/DateRangePicker';
+import { apiGet, pct, num } from '../../lib/api';
+import { useDashboard } from '../../components/DashboardProvider';
+import KpiBar from '../../components/KpiBar';
+import DataTable from '../../components/DataTable';
+import { chartTheme } from '../../lib/theme';
 
 const PlotlyChart = dynamic(() => import('../../components/PlotlyChart'), { ssr: false });
 
-const SOURCE_COLOR = {
-  bloomberg: '#1d4ed8',
-  sbs: '#047857',
-  scraper: '#b45309',
-  fms: '#7c3aed',
-};
+const SOURCE_COLOR = { bloomberg: '#5B8CFF', sbs: '#2DD4A0', scraper: '#F5A623', fms: '#A78BFA' };
 
-// Pad a tooltip label to a fixed column with non-breaking spaces so values line
-// up under the monospace hover font (normal spaces collapse in SVG text).
 const NBSP = String.fromCharCode(160);
-const labelCell = (text) => {
-  const base = `${text}:`;
-  return base + NBSP.repeat(Math.max(1, 8 - base.length));
-};
-
-// Multi-line hover panel: Source / Date / Return / Price. The source value is
-// tinted to match its line; labels are muted, values bright. customdata carries
-// [date, return%, SOURCE, price] for the exact point being inspected.
+const labelCell = (t) => { const b = `${t}:`; return b + NBSP.repeat(Math.max(1, 8 - b.length)); };
 const hoverTemplate = (color) =>
-  `<span style="color:#94a3b8">${labelCell('Source')}</span>` +
-  `<b><span style="color:${color}">%{customdata[2]}</span></b><br>` +
-  `<span style="color:#94a3b8">${labelCell('Date')}</span>%{customdata[0]}<br>` +
-  `<span style="color:#94a3b8">${labelCell('Return')}</span>%{customdata[1]:+.2f}%<br>` +
-  `<span style="color:#94a3b8">${labelCell('Price')}</span>%{customdata[3]:,.4f}` +
-  `<extra></extra>`;
-
-// Shared crosshair/spike config for both axes -- dotted line that snaps to the
-// nearest data point, so the highlighted observation is unambiguous.
+  `<span style="color:#8892A4">${labelCell('Source')}</span><b><span style="color:${color}">%{customdata[2]}</span></b><br>` +
+  `<span style="color:#8892A4">${labelCell('Date')}</span>%{customdata[0]}<br>` +
+  `<span style="color:#8892A4">${labelCell('Return')}</span>%{customdata[1]:+.2f}%<br>` +
+  `<span style="color:#8892A4">${labelCell('Price')}</span>%{customdata[3]:,.4f}<extra></extra>`;
+// Structural spike config only; colors are injected by PlotlyChart from the theme.
 const SPIKE = {
-  showspikes: true,
-  spikemode: 'across',
-  spikesnap: 'hovered data',
-  spikethickness: 1,
-  spikedash: 'dot',
-  spikecolor: '#94a3b8',
-  gridcolor: '#eef2f7',
+  showspikes: true, spikemode: 'across', spikesnap: 'hovered data',
+  spikethickness: 1, spikedash: 'dot',
 };
 
 export default function PricesPage() {
+  const { range } = useDashboard();
   const [securities, setSecurities] = useState([]);
   const [entityId, setEntityId] = useState('');
-  const [from, setFrom] = useState('2026-03-01');
-  const [to, setTo] = useState('2026-06-10');
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
-  const [hoverDate, setHoverDate] = useState(null); // x value of the inspected point
+  const [hoverDate, setHoverDate] = useState(null);
 
-  // load the security picker once
   useEffect(() => {
     apiGet('/api/securities?limit=500')
-      .then((rows) => {
-        setSecurities(rows);
-        if (rows.length) setEntityId(String(rows[0].entity_id));
-      })
+      .then((rows) => { setSecurities(rows); if (rows.length) setEntityId(String(rows[0].entity_id)); })
       .catch((e) => setError(e.message));
   }, []);
 
-  // (re)load prices whenever the selection changes
   useEffect(() => {
     if (!entityId) return;
-    setLoading(true);
-    setError(null);
-    apiGet(`/api/prices?entity_id=${entityId}&from=${from}&to=${to}`)
-      .then((d) => setData(d))
-      .catch((e) => setError(e.message))
-      .finally(() => setLoading(false));
-  }, [entityId, from, to]);
+    setLoading(true); setError(null);
+    apiGet(`/api/prices?entity_id=${entityId}&from=${range.from}&to=${range.to}`)
+      .then(setData).catch((e) => setError(e.message)).finally(() => setLoading(false));
+  }, [entityId, range.from, range.to]);
 
-  const traces = (data?.series || []).map((s) => {
-    const color = SOURCE_COLOR[s.source] || '#374151';
-    // Return is the cumulative % change from the first valid point in the window.
+  const entity = data?.entity;
+  const series = data?.series || [];
+
+  const traces = series.map((s) => {
+    const color = SOURCE_COLOR[s.source] || '#8892A4';
     const firstValid = s.points.find((p) => p.price != null);
     const base = firstValid ? firstValid.price : null;
     return {
       x: s.points.map((p) => p.date),
       y: s.points.map((p) => p.price),
-      customdata: s.points.map((p) => [
-        p.date,                                       // exact ISO date of the point
-        base ? (p.price / base - 1) * 100 : 0,        // cumulative return over window (%)
-        s.source.toUpperCase(),                       // source label
-        p.price,                                      // price
-      ]),
-      type: 'scatter',
-      mode: 'lines',
-      name: s.source,
+      customdata: s.points.map((p) => [p.date, base ? (p.price / base - 1) * 100 : 0, s.source.toUpperCase(), p.price]),
+      type: 'scatter', mode: 'lines', name: s.source,
       line: { color, width: 2 },
       hovertemplate: hoverTemplate(color),
-      hoverlabel: { bordercolor: color }, // source-matched accent edge on the panel
+      hoverlabel: { bordercolor: color },
     };
   });
 
-  const entity = data?.entity;
+  // KPI inputs: prefer bloomberg as the primary series
+  const primary = series.find((s) => s.source === 'bloomberg') || series[0];
+  const lastPt = primary?.points?.[primary.points.length - 1];
+  const firstPt = primary?.points?.find((p) => p.price != null);
+  const periodRet = (firstPt && lastPt && firstPt.price) ? lastPt.price / firstPt.price - 1 : null;
+  const latest = series.map((s) => s.points[s.points.length - 1]?.price).filter((v) => v != null);
+  const spread = latest.length > 1 ? (Math.max(...latest) - Math.min(...latest)) / (latest.reduce((a, b) => a + b, 0) / latest.length) : 0;
 
-  // Bloomberg-style x-axis date tag: a translucent box pinned to the x-axis that
-  // follows the inspected point. Implemented as a paper-anchored annotation
-  // repositioned on hover (Plotly has no native axis-spike label box).
-  const handleHover = (e) => {
-    const pt = e?.points?.[0];
-    if (pt) setHoverDate(pt.customdata?.[0] ?? pt.x);
-  };
+  const kpis = [
+    { label: 'Security', value: entity?.ticker || entity?.display_name || '—', meta: entity?.display_name || '' },
+    { label: 'Latest Price', value: lastPt ? num(lastPt.price, 4) : '—', meta: lastPt ? `${primary.source} · ${lastPt.date}` : '' },
+    { label: 'Period Return', value: periodRet != null ? pct(periodRet) : '—', tone: periodRet >= 0 ? 'pos' : 'neg', meta: 'window' },
+    { label: 'Sources', value: series.length <= 1 ? 'Single' : (spread > 0.0025 ? 'Diverge' : 'Agree'), meta: `${series.length} src · ${(spread * 100).toFixed(2)}% spread` },
+  ];
+
+  // x-axis date tag (paper-anchored annotation, follows the hovered point)
+  const handleHover = (e) => { const pt = e?.points?.[0]; if (pt) setHoverDate(pt.customdata?.[0] ?? pt.x); };
   const handleUnhover = () => setHoverDate(null);
+  const ct = chartTheme();
+  const dateTag = hoverDate ? [{
+    x: hoverDate, xref: 'x', y: 0, yref: 'paper', yanchor: 'top', yshift: -6,
+    text: hoverDate, showarrow: false,
+    bgcolor: ct.panel, bordercolor: ct.border, borderwidth: 1, borderpad: 4,
+    font: { family: "var(--font-plex), 'IBM Plex Mono', monospace", size: 11, color: ct.text },
+  }] : [];
 
-  const dateTag = hoverDate
-    ? [{
-        x: hoverDate,
-        xref: 'x',
-        y: 0,
-        yref: 'paper',
-        yanchor: 'top',
-        yshift: -6,
-        text: hoverDate,
-        showarrow: false,
-        bgcolor: 'rgba(15, 23, 42, 0.85)',
-        bordercolor: '#334155',
-        borderwidth: 1,
-        borderpad: 4,
-        font: {
-          family: 'ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
-          size: 11,
-          color: '#e2e8f0',
-        },
-      }]
-    : [];
+  // source comparison table: Bloomberg vs next available source
+  const colA = series.find((s) => s.source === 'bloomberg') || series[0];
+  const colB = series.find((s) => s !== colA);
+  const cmpRows = useMemo(() => {
+    if (!colA || !colB) return [];
+    const mapB = new Map(colB.points.map((p) => [p.date, p.price]));
+    return colA.points
+      .filter((p) => mapB.has(p.date))
+      .map((p) => {
+        const a = p.price; const b = mapB.get(p.date); const delta = a - b;
+        const rel = a ? Math.abs(delta) / a : 0;
+        return { __key: p.date, date: p.date, a, b, delta, flag: rel > 0.005 ? '⚠ divergence' : '' };
+      })
+      .reverse();
+  }, [data]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const cmpCols = [
+    { key: 'date', label: 'Date' },
+    { key: 'a', label: (colA?.source || 'A').toUpperCase(), numeric: true, render: (v) => num(v, 4) },
+    { key: 'b', label: (colB?.source || 'B').toUpperCase(), numeric: true, render: (v) => num(v, 4) },
+    { key: 'delta', label: 'Δ', numeric: true, render: (v) => <span className={v >= 0 ? 'pos' : 'neg'}>{v >= 0 ? '+' : ''}{num(v, 4)}</span>, csv: (v) => v },
+    { key: 'flag', label: 'Flag', align: 'left', sortable: false, render: (v) => (v ? <span className="flag-warn">{v}</span> : '') },
+  ];
+  const cmpName = `${entity?.ticker || 'security'}_prices_${range.from}_${range.to}`;
 
   return (
     <div>
       <h1 className="page-title">Price Viewer</h1>
       <p className="page-sub">Daily prices for one security, one line per source.</p>
 
+      <KpiBar tiles={kpis} />
+
       <div className="panel">
         <div className="controls">
           <div className="field">
             <label>Security</label>
-            <select value={entityId} onChange={(e) => setEntityId(e.target.value)} style={{ minWidth: 280 }}>
+            <select className="select" value={entityId} onChange={(e) => setEntityId(e.target.value)} style={{ minWidth: 280 }}>
               {securities.map((s) => (
-                <option key={s.entity_id} value={s.entity_id}>
-                  {s.display_name} {s.ticker ? `(${s.ticker})` : ''}
-                </option>
+                <option key={s.entity_id} value={s.entity_id}>{s.display_name}{s.ticker ? ` (${s.ticker})` : ''}</option>
               ))}
             </select>
           </div>
-          <DateRangePicker from={from} to={to} onFromChange={setFrom} onToChange={setTo} />
         </div>
       </div>
 
       {error && <div className="panel error">Error: {error}</div>}
-
-      {entity && (
-        <div className="panel">
-          <div className="metrics">
-            <div className="metric">
-              <span className="label">Security</span>
-              <span className="value">{entity.display_name}</span>
-            </div>
-            <div className="metric">
-              <span className="label">Asset class</span>
-              <span className="value"><span className="tag">{entity.asset_class}</span></span>
-            </div>
-            <div className="metric">
-              <span className="label">ISIN</span>
-              <span className="value" style={{ fontSize: 15 }}>{entity.isin || '—'}</span>
-            </div>
-            <div className="metric">
-              <span className="label">Currency</span>
-              <span className="value" style={{ fontSize: 15 }}>{entity.base_currency}</span>
-            </div>
-          </div>
-        </div>
-      )}
 
       <div className="panel">
         {loading ? (
@@ -197,8 +158,7 @@ export default function PricesPage() {
             onHover={handleHover}
             onUnhover={handleUnhover}
             layout={{
-              hovermode: 'closest',
-              hoverdistance: 30,
+              hovermode: 'closest', hoverdistance: 30,
               margin: { l: 60, r: 20, t: 30, b: 64 },
               annotations: dateTag,
               xaxis: { title: '', hoverformat: '%Y-%m-%d', ...SPIKE },
@@ -207,6 +167,15 @@ export default function PricesPage() {
           />
         ) : (
           <div className="muted">No price data for this selection.</div>
+        )}
+      </div>
+
+      <div className="panel">
+        <div className="panel-title">Source comparison</div>
+        {cmpRows.length ? (
+          <DataTable columns={cmpCols} rows={cmpRows} initialSort="date" exportName={cmpName} storageKey="prices_cmp" />
+        ) : (
+          <div className="muted">Need at least two price sources to compare.</div>
         )}
       </div>
     </div>

@@ -13,7 +13,7 @@ import sqlite3
 from pathlib import Path
 
 from src.db.seed import seed
-from src.db.session import get_db_path
+from src.db.connection import get_db_path
 
 logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
 logger = logging.getLogger(__name__)

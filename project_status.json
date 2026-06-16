@@ -1,0 +1,129 @@
+{
+  "project": "Portfolio Analytics Platform — front-end + API layer",
+  "status_as_of": "2026-06-12",
+  "overall_status": "Feature-complete for v0.1 against the reference backend; verified locally; ready to deploy via IP:port. Not yet wired to the real PostgreSQL backend.",
+
+  "components": [
+    {
+      "name": "Reference backend (SQLite)",
+      "status": "done",
+      "detail": "Disposable dev DB. src/db/connection.py (get_connection contextmanager, renamed from session.py), schema/NN_*.sql, seed.py, build_reference_db.py.",
+      "verified": true
+    },
+    {
+      "name": "FastAPI API",
+      "status": "done",
+      "detail": "web/api/main.py + routes/ + services/. Serves /api and the static bundle at / (single origin, no CORS).",
+      "verified": true
+    },
+    {
+      "name": "Price Viewer dashboard",
+      "status": "done",
+      "detail": "Prices by source; Bloomberg-style hover (multi-line tooltip, crosshair, x-axis date tag).",
+      "verified": true
+    },
+    {
+      "name": "Positioning dashboard",
+      "status": "done",
+      "detail": "Holdings table + weight breakdown donut; driven by date-range END (snaps to latest snapshot <= date).",
+      "verified": true
+    },
+    {
+      "name": "Contribution dashboard",
+      "status": "done",
+      "detail": "Contribution bar + table; single-period approximation. Provider seam ready for future fact_contribution.",
+      "verified": true
+    },
+    {
+      "name": "Shared DateRangePicker",
+      "status": "done",
+      "detail": "Common From/To selector used by all three dashboards.",
+      "verified": true
+    },
+    {
+      "name": "Static export build + packaging",
+      "status": "done",
+      "detail": "npm run build -> out/ ; packaged dashboards-0.1.0.zip (1.5 MB), relative /api URLs confirmed.",
+      "verified": true
+    },
+    {
+      "name": "fact_contribution provider seam",
+      "status": "done",
+      "detail": "DerivedContributionProvider (now) vs FactContributionProvider (future); auto-selects when table has data. Table created EMPTY.",
+      "verified": true
+    },
+    {
+      "name": "Deployment to i7 (IP:port)",
+      "status": "pending",
+      "detail": "Workflow defined (build->GitHub Release zip->i7 swap). Not yet executed on i7. Decision: use IP + port on the floor subnet.",
+      "verified": false
+    },
+    {
+      "name": "Port to real PostgreSQL + psycopg v3",
+      "status": "pending",
+      "detail": "Swap src/db/connection.py internals; ? -> %s placeholders. HTTP/JSON contract + Next bundle unchanged.",
+      "verified": false
+    },
+    {
+      "name": "Always-on process management (Task Scheduler)",
+      "status": "pending",
+      "detail": "uvicorn currently run manually; register under Task Scheduler with --host 0.0.0.0 --port 8000.",
+      "verified": false
+    }
+  ],
+
+  "current_runtime_state": {
+    "local_dev_server_8000": "NOT running (start with: PYTHONPATH=. python -m uvicorn web.api.main:app --host 0.0.0.0 --port 8000)",
+    "reference_db": "present (data/reference.db)",
+    "static_bundle_out": "built (web/apps/dashboards/out/)",
+    "release_artifact": "web/apps/dashboards/dashboards-0.1.0.zip present"
+  },
+
+  "verification_done": [
+    "All API endpoints return correct enriched data",
+    "Static export build passes (7 pages prerender, no SSR errors)",
+    "FastAPI serves bundle at / and API at /api on the same origin",
+    "Holdings snap-to-date works for free dates",
+    "Contribution provider auto-switch verified (empty->derived, populated->fact, cleanup->derived)",
+    "Production bundle bakes RELATIVE /api URLs (no absolute base leaked)",
+    "Module rename src.db.session -> src.db.connection: no stale refs, all imports OK"
+  ],
+
+  "hosting_decision": "IP + port on the shared same-floor subnet (e.g. http://<i7-ip>:8000/). Requires uvicorn --host 0.0.0.0 + Windows Firewall inbound rule for the port. Vanity domain deferred (would need an internal DNS A record from IT).",
+
+  "environment_constraints": {
+    "corporate_ssl_interception": "pip: --trusted-host pypi.org --trusted-host files.pythonhosted.org ; npm: npm config set strict-ssl false",
+    "i7_server": "No admin, no Node/npm; FastAPI + PostgreSQL; Task Scheduler for process management",
+    "auth": "Trust-the-network, internal-only, no endpoint auth"
+  },
+
+  "open_items": [
+    "Register uvicorn under Task Scheduler (--host 0.0.0.0 --port 8000) for always-on hosting",
+    "Add Windows Firewall inbound rule for the chosen port (needs admin / desktop support)",
+    "Execute first i7 deployment (download Release zip -> swap into out/ -> restart)",
+    "Port reference backend to real PostgreSQL + psycopg v3",
+    "Build the ETL that populates fact_contribution (dashboard switches provider automatically)",
+    "Optional: DASHBOARDS_BUNDLE_DIR env override, .nvmrc, scripts/package_dashboards.sh, scripts/serve.bat",
+    "Optional: decide if Positioning should support a two-date holdings delta"
+  ],
+
+  "risks_gotchas": [
+    "NEXT_PUBLIC_* baked at build time -> build with NEXT_PUBLIC_API_BASE unset",
+    "trailingSlash:true -> use /prices/ etc.; static serving won't redirect /prices",
+    "StaticFiles mounts at startup -> restart uvicorn after first deploy of out/",
+    "Replace out/ atomically (temp dir + mv) to avoid stale hashed-chunk references",
+    ".gitignore ignores out/ and *.zip -> distribute the bundle via GitHub Release, not git"
+  ],
+
+  "how_to_run": [
+    "python src/db/build_reference_db.py",
+    "PYTHONPATH=. python -m uvicorn web.api.main:app --host 0.0.0.0 --port 8000",
+    "open http://<ip>:8000/  (routes: /prices/ /positioning/ /contribution/)"
+  ],
+
+  "related_docs": [
+    "session_context_2026-06-12.json (full session handoff)",
+    "README.md (run + deploy instructions)",
+    "frontend_session_context.json (prior backend/architecture handoff)"
+  ]
+}

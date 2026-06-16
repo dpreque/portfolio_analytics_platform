@@ -1,0 +1,108 @@
+{
+  "purpose": "Session summary / continuation context for the analytics dashboards front-end work. Companion to frontend_session_context.json (the prior backend/architecture handoff).",
+  "session_date": "2026-06-12",
+  "session_focus": "Build the front-end + API layer (three dashboards) against a disposable reference backend, polish the Price Viewer hover UX, standardize date-range selection, architect Contribution for a future fact_contribution table, and define the static-export deployment workflow.",
+
+  "repo_state_at_start": "Empty repo: only README.md, .gitignore, and frontend_session_context.json. The authoritative ETL backend (PostgreSQL + psycopg v3, fact_prices/fact_positions, etc.) lives on a DIFFERENT machine and is NOT in this repo.",
+
+  "key_decisions": {
+    "reference_backend": "Built a throwaway SQLite reference DB in THIS repo (data/reference.db) following the documented schema, purely to drive front-end dev. src/db/connection.py mirrors the real psycopg get_connection() contract so porting is mechanical (? -> %s, swap internals).",
+    "repo_root_as_etl_folder": "Repo root is treated as the `etl/` folder so imports resolve as `from src.db.connection import ...`. Top-level src/ and web/.",
+    "frontend_stack": "Next.js 14 static export (output:'export'). Confirmed working end-to-end; NO fallback to vanilla needed.",
+    "api_contract": "Endpoints model business concepts (holdings, contribution), not raw tables. Single-origin: FastAPI serves the built bundle at / and the API at /api -> relative URLs, no CORS.",
+    "contribution_calc": "Single-period buy-and-hold approximation (no fact_returns table): contribution_i = weight_i(d0) * return_i(d0->d1).",
+    "hosting": "IP + port on the shared same-floor subnet. No vanity domain for now (would need an IT DNS record). Must run uvicorn with --host 0.0.0.0 for floor access."
+  },
+
+  "delivered": {
+    "reference_backend": {
+      "files": [
+        "src/db/connection.py (SQLite get_connection contextmanager)",
+        "src/db/schema/10_dim_entity.sql, 11_dim_entity_identifiers.sql, 22_fact_positions.sql, 24_fact_contribution.sql, 27_dim_portfolio.sql, 30_fact_prices.sql",
+        "src/db/seed.py (deterministic sample data)",
+        "src/db/build_reference_db.py (rebuild: python src/db/build_reference_db.py)"
+      ],
+      "seed_data": "24 securities, 4 portfolios, ~4,140 prices (multi-source), 200 position snapshots. fact_contribution created EMPTY (forward-looking)."
+    },
+    "api": {
+      "run": "PYTHONPATH=. python -m uvicorn web.api.main:app --host 0.0.0.0 --port 8000",
+      "files": "web/api/main.py, web/api/routes/{securities,prices,portfolios,positions,contribution}.py, web/api/services/{...}.py",
+      "endpoints": [
+        "GET /api/securities?search=&limit=",
+        "GET /api/prices?entity_id=&from=&to=&sources=",
+        "GET /api/portfolios",
+        "GET /api/portfolios/{id}/dates",
+        "GET /api/portfolios/{id}/holdings?date=   (snaps to latest snapshot <= date)",
+        "GET /api/portfolios/{id}/contribution?from=&to=&source=",
+        "GET /api/health"
+      ]
+    },
+    "dashboards": {
+      "stack": "web/apps/dashboards/ (Next.js app router, app/{prices,positioning,contribution}/page.js)",
+      "price_viewer": "Prices by source line chart. Institutional/Bloomberg-style hover: dark multi-line tooltip (Source/Date/Return/Price) via Plotly hovertemplate+customdata, dotted crosshair (showspikes + spikesnap:'hovered data'), and a cursor-following x-axis date tag (paper-anchored annotation repositioned on onHover).",
+      "positioning": "Holdings table (sortable) + weight breakdown donut (asset class / currency). Point-in-time: driven by the date-range END (as-of date).",
+      "contribution": "Contribution bar chart + sortable table; portfolio return header. Single-period approximation, noted in UI.",
+      "shared_components": "components/DateRangePicker.js (the common From/To selector used by all three pages), PlotlyChart.js (client-only Plotly wrapper + dark hover defaults), SortableTable.js, Nav.js"
+    },
+    "contribution_future_proofing": {
+      "seam": "web/api/services/contribution_providers.py with DerivedContributionProvider (current) and FactContributionProvider (reads fact_contribution).",
+      "selection": "get_contribution_provider() auto-picks the fact table once it has rows; env override CONTRIBUTION_PROVIDER=derived|fact. Verified: empty->derived, populated->fact, cleanup->derived.",
+      "impact": "Migrating to fact_contribution is a DATA event: no route change, no front-end change. Schema: src/db/schema/24_fact_contribution.sql (grain portfolio_id, entity_id, period_start, period_end, source)."
+    }
+  },
+
+  "deployment_workflow": {
+    "model": "Build on a dev machine (has Node/npm); i7 server has NO Node. Move SOURCE via git, move the built bundle via a GitHub Release zip (out/ is gitignored).",
+    "build_on_dev": "cd web/apps/dashboards && npm ci && (NEXT_PUBLIC_API_BASE unset) npm run build  -> out/   then zip out/ -> dashboards-<version>.zip",
+    "artifact_produced_this_session": "web/apps/dashboards/dashboards-0.1.0.zip (1.5 MB); verified NO absolute API base baked in (relative /api confirmed).",
+    "upload_dev_to_github": {
+      "git_push_source": ["src/", "web/api/", "web/apps/dashboards/{app,components,lib}", "package.json", "package-lock.json", "next.config.js", ".env.development", "requirements.txt", "README.md", ".gitignore"],
+      "release_asset": "web/apps/dashboards/dashboards-0.1.0.zip",
+      "never_commit": ["node_modules/", ".next/", "out/", "*.zip (in git)", "data/", "__pycache__/"]
+    },
+    "download_github_to_i7": {
+      "frontend_only_change": "Download the Release zip -> unzip into web/apps/dashboards/out/ (atomic swap: mv out_new out).",
+      "backend_change": "git pull (or download repo zip) for web/api/ + src/, plus the zip if UI also changed; restart uvicorn.",
+      "first_time": "Both source and the Release zip; pip install fastapi uvicorn (+ psycopg on the real backend)."
+    },
+    "serving": "FastAPI main.py mounts out/ at / (after /api routers) via StaticFiles(html=True). Single origin, no CORS."
+  },
+
+  "how_to_run_locally": [
+    "python src/db/build_reference_db.py            # build data/reference.db",
+    "PYTHONPATH=. python -m uvicorn web.api.main:app --host 0.0.0.0 --port 8000",
+    "open http://<ip>:8000/  (dashboards at /prices/, /positioning/, /contribution/ -- trailing slash required)",
+    "dev hot-reload: cd web/apps/dashboards && npm run dev  (port 3000, NEXT_PUBLIC_API_BASE from .env.development)"
+  ],
+
+  "environment_constraints": {
+    "corporate_ssl_interception": "pip and npm fail cert verification. Workarounds used: pip --trusted-host pypi.org --trusted-host files.pythonhosted.org ; npm config set strict-ssl false. Proper fix = point at the corporate root CA.",
+    "i7_server": "No admin, no Node, no npm; FastAPI + PostgreSQL run here; process management via Task Scheduler (no systemd/nssm/Docker).",
+    "network": "Shared same-floor subnet, internal-only, no endpoint auth (trust-the-network)."
+  },
+
+  "gotchas": [
+    ".gitignore ignores web/apps/*/out/ and *.zip -> correct for the Release approach; if ever committing the build, remove those lines first.",
+    "NEXT_PUBLIC_* is baked at BUILD time -> build with NEXT_PUBLIC_API_BASE unset or an absolute API URL gets compiled in (breaks same-origin/no-CORS).",
+    "trailingSlash:true -> files are prices/index.html; static serving won't redirect /prices -> /prices/. Always use the slash form.",
+    "StaticFiles mounts at startup: if uvicorn boots without out/ present, restart after deploying the bundle.",
+    "Replace out/ atomically (temp dir + mv); a partial copy leaves index.html referencing missing hashed chunks.",
+    "Floor access requires uvicorn --host 0.0.0.0 AND a Windows Firewall inbound rule for the port (rule likely needs admin).",
+    "Serving under a subpath later requires basePath/assetPrefix in next.config.js + rebuild."
+  ],
+
+  "open_items_next_steps": [
+    "Register uvicorn under Task Scheduler on the i7 (always-on, auto-restart) with --host 0.0.0.0 --port 8000.",
+    "Optional: add DASHBOARDS_BUNDLE_DIR env override in main.py, .nvmrc, and scripts/package_dashboards.sh (build+zip) for repeatability.",
+    "Port the reference backend to the real PostgreSQL + psycopg v3 (swap src/db/connection.py internals, ? -> %s).",
+    "Build the real ETL that populates fact_contribution -> dashboard switches to FactContributionProvider automatically.",
+    "Optional vanity URL: request an internal DNS A record (analytics.profuturo.pe -> i7 IP) from IT; app needs no rebuild (relative URLs).",
+    "Decide whether Positioning should stay as-of (range end) or become a two-date holdings delta."
+  ],
+
+  "memory_written": [
+    "analytics-dashboards-build.md (repo layout, shared DateRangePicker, hover UX, contribution provider seam)",
+    "corporate-ssl-bypass.md (pip/npm cert workarounds)",
+    "dashboards-deployment-workflow.md (build -> Release zip -> i7 swap; gotchas)"
+  ]
+}
