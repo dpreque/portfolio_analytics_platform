@@ -20,8 +20,9 @@ from __future__ import annotations
 
 import logging
 import os
-import sqlite3
 from typing import Protocol
+
+import psycopg
 
 from src.db.connection import get_connection
 
@@ -41,10 +42,10 @@ class ContributionProvider(Protocol):
 # ---------------------------------------------------------------------------
 # Shared helpers
 # ---------------------------------------------------------------------------
-def _portfolio(cur: sqlite3.Cursor, portfolio_id: int) -> dict | None:
+def _portfolio(cur: psycopg.Cursor, portfolio_id: int) -> dict | None:
     cur.execute(
         """SELECT portfolio_id, internal_code, display_name, base_currency
-           FROM dim_portfolio WHERE portfolio_id = ?""",
+           FROM dim_portfolio WHERE portfolio_id = %s""",
         (portfolio_id,),
     )
     row = cur.fetchone()
@@ -103,7 +104,7 @@ class DerivedContributionProvider:
 
             cur.execute(
                 """SELECT MAX(reference_date) AS d FROM fact_positions
-                   WHERE portfolio_id = ? AND reference_date <= ?""",
+                   WHERE portfolio_id = %s AND reference_date <= %s""",
                 (portfolio_id, date_from),
             )
             snap = cur.fetchone()["d"]
@@ -114,7 +115,7 @@ class DerivedContributionProvider:
                 """SELECT p.entity_id, e.display_name, e.asset_class, e.sector, p.weight
                    FROM fact_positions p
                    JOIN dim_entity e ON e.entity_id = p.entity_id
-                   WHERE p.portfolio_id = ? AND p.reference_date = ?""",
+                   WHERE p.portfolio_id = %s AND p.reference_date = %s""",
                 (portfolio_id, snap),
             )
             positions = [dict(row) for row in cur.fetchall()]
@@ -138,12 +139,12 @@ class DerivedContributionProvider:
         return _shape(portfolio, date_from, date_to, source, snap, holdings)
 
 
-def _price_at(cur: sqlite3.Cursor, entity_id: int, on_or_before: str, source: str | None) -> float | None:
+def _price_at(cur: psycopg.Cursor, entity_id: int, on_or_before: str, source: str | None) -> float | None:
     """Latest price for entity on-or-before a date. Prefers `source`, else bloomberg, else any."""
     if source:
         cur.execute(
             """SELECT price FROM fact_prices
-               WHERE entity_id = ? AND reference_date <= ? AND source = ?
+               WHERE entity_id = %s AND reference_date <= %s AND source = %s
                ORDER BY reference_date DESC LIMIT 1""",
             (entity_id, on_or_before, source),
         )
@@ -152,7 +153,7 @@ def _price_at(cur: sqlite3.Cursor, entity_id: int, on_or_before: str, source: st
             return row["price"]
     cur.execute(
         """SELECT price FROM fact_prices
-           WHERE entity_id = ? AND reference_date <= ?
+           WHERE entity_id = %s AND reference_date <= %s
            ORDER BY (source = 'bloomberg') DESC, reference_date DESC LIMIT 1""",
         (entity_id, on_or_before),
     )
@@ -184,11 +185,11 @@ class FactContributionProvider:
                        c.weight, c.period_return AS return, c.contribution
                 FROM fact_contribution c
                 JOIN dim_entity e ON e.entity_id = c.entity_id
-                WHERE c.portfolio_id = ? AND c.period_start = ? AND c.period_end = ?
+                WHERE c.portfolio_id = %s AND c.period_start = %s AND c.period_end = %s
             """
             params: list = [portfolio_id, date_from, date_to]
             if source:
-                sql += " AND c.source = ?"
+                sql += " AND c.source = %s"
                 params.append(source)
 
             cur.execute(sql, params)
@@ -210,17 +211,15 @@ class FactContributionProvider:
 # ---------------------------------------------------------------------------
 def _fact_table_has_data() -> bool:
     """True if fact_contribution exists and holds at least one row."""
+    # A missing table raises psycopg.Error; the exception propagates out of the
+    # with-block so the connection rolls back, and we treat "can't read it" as
+    # "no data" -> derived provider.
     try:
         with get_connection() as conn:
             cur = conn.cursor()
-            cur.execute(
-                "SELECT name FROM sqlite_master WHERE type='table' AND name='fact_contribution'"
-            )
-            if cur.fetchone() is None:
-                return False
             cur.execute("SELECT 1 FROM fact_contribution LIMIT 1")
             return cur.fetchone() is not None
-    except sqlite3.Error as exc:
+    except Exception as exc:
         logger.warning(f"fact_contribution probe failed, using derived provider: {exc}")
         return False
 

@@ -31,7 +31,7 @@ def get_position_dates(portfolio_id: int) -> list[str]:
         cur.execute(
             """SELECT DISTINCT reference_date
                FROM fact_positions
-               WHERE portfolio_id = ?
+               WHERE portfolio_id = %s
                ORDER BY reference_date DESC""",
             (portfolio_id,),
         )

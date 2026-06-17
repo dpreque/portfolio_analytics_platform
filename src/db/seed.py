@@ -8,15 +8,17 @@
 #   - fact_prices                         : ~90 business days, 2-3 sources each
 #   - fact_positions                      : monthly snapshots with MV-based weights
 #
-# Deterministic (random.seed) so rebuilds are reproducible. This is throwaway
-# scaffolding; the authoritative data lives on the ETL machine.
+# PostgreSQL (psycopg v3): %s placeholders, RETURNING for generated ids,
+# executemany for the bulk fact inserts. Deterministic (random.seed) so rebuilds
+# are reproducible.
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
 import logging
 import random
-import sqlite3
 from datetime import date, timedelta
+
+import psycopg
 
 logger = logging.getLogger(__name__)
 
@@ -96,7 +98,7 @@ def _vol_for(asset_class: str) -> float:
     return {"equity": 0.013, "bond": 0.003, "fund": 0.009, "cash": 0.0}.get(asset_class, 0.01)
 
 
-def seed(conn: sqlite3.Connection) -> dict[str, int]:
+def seed(conn: psycopg.Connection) -> dict[str, int]:
     """Populate all reference tables. Returns row counts per table."""
     rng = random.Random(_SEED)
     cur = conn.cursor()
@@ -109,13 +111,13 @@ def seed(conn: sqlite3.Connection) -> dict[str, int]:
         cur.execute(
             """INSERT INTO dim_entity
                (display_name, asset_class, sector, isin, ticker, base_currency, country)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING entity_id""",
             (name, ac, sector, isin, ticker, ccy, country),
         )
-        eid = cur.lastrowid
-        cur.execute("INSERT INTO dim_entity_identifiers (entity_id, id_type, id_value) VALUES (?,?,?)",
+        eid = cur.fetchone()["entity_id"]
+        cur.execute("INSERT INTO dim_entity_identifiers (entity_id, id_type, id_value) VALUES (%s,%s,%s)",
                     (eid, "isin", isin))
-        cur.execute("INSERT INTO dim_entity_identifiers (entity_id, id_type, id_value) VALUES (?,?,?)",
+        cur.execute("INSERT INTO dim_entity_identifiers (entity_id, id_type, id_value) VALUES (%s,%s,%s)",
                     (eid, "bloomberg_ticker", ticker))
         entities.append({"id": eid, "ac": ac, "sources": psources, "ccy": ccy, "base": base})
 
@@ -124,11 +126,11 @@ def seed(conn: sqlite3.Connection) -> dict[str, int]:
         cur.execute(
             """INSERT INTO dim_entity
                (display_name, asset_class, sector, isin, ticker, base_currency, country)
-               VALUES (?, 'cash', NULL, NULL, NULL, ?, NULL)""",
+               VALUES (%s, 'cash', NULL, NULL, NULL, %s, NULL) RETURNING entity_id""",
             (name, ccy),
         )
-        eid = cur.lastrowid
-        cur.execute("INSERT INTO dim_entity_identifiers (entity_id, id_type, id_value) VALUES (?,?,?)",
+        eid = cur.fetchone()["entity_id"]
+        cur.execute("INSERT INTO dim_entity_identifiers (entity_id, id_type, id_value) VALUES (%s,%s,%s)",
                     (eid, "currency_cash", ccy))
         cash_entities[ccy] = eid
 
@@ -153,7 +155,7 @@ def seed(conn: sqlite3.Connection) -> dict[str, int]:
                 price_rows.append((ent["id"], src, dstr, px, ent["ccy"], "close"))
     cur.executemany(
         """INSERT INTO fact_prices (entity_id, source, reference_date, price, currency, price_type)
-           VALUES (?, ?, ?, ?, ?, ?)""",
+           VALUES (%s, %s, %s, %s, %s, %s)""",
         price_rows,
     )
     # cash trades flat at par in its currency, single 'sbs' source
@@ -162,7 +164,7 @@ def seed(conn: sqlite3.Connection) -> dict[str, int]:
             price_lookup[(eid, dstr)] = 1.0
             cur.execute(
                 """INSERT INTO fact_prices (entity_id, source, reference_date, price, currency, price_type)
-                   VALUES (?, 'sbs', ?, 1.0, ?, 'close')""",
+                   VALUES (%s, 'sbs', %s, 1.0, %s, 'close')""",
                 (eid, dstr, ccy),
             )
 
@@ -174,10 +176,10 @@ def seed(conn: sqlite3.Connection) -> dict[str, int]:
         cur.execute(
             """INSERT INTO dim_portfolio
                (internal_code, source, portfolio_type, display_name, base_currency, parent_entity_id, status)
-               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+               VALUES (%s, %s, %s, %s, %s, %s, %s) RETURNING portfolio_id""",
             (code, src, ptype, name, ccy, parent, status),
         )
-        portfolios.append({"id": cur.lastrowid, "source": src, "ccy": ccy, "type": ptype})
+        portfolios.append({"id": cur.fetchone()["portfolio_id"], "source": src, "ccy": ccy, "type": ptype})
 
     # snap snapshot targets to nearest trading day <= target
     day_set = set(day_strs)
@@ -227,16 +229,15 @@ def seed(conn: sqlite3.Connection) -> dict[str, int]:
         """INSERT INTO fact_positions
            (entity_id, portfolio_id, reference_date, source, quantity, market_value,
             cost_basis, accrued_interest, weight, price_used, currency, yield_to_maturity, duration)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+           VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)""",
         pos_rows,
     )
 
-    counts = {
-        "dim_entity": cur.execute("SELECT COUNT(*) FROM dim_entity").fetchone()[0],
-        "dim_entity_identifiers": cur.execute("SELECT COUNT(*) FROM dim_entity_identifiers").fetchone()[0],
-        "dim_portfolio": cur.execute("SELECT COUNT(*) FROM dim_portfolio").fetchone()[0],
-        "fact_prices": cur.execute("SELECT COUNT(*) FROM fact_prices").fetchone()[0],
-        "fact_positions": cur.execute("SELECT COUNT(*) FROM fact_positions").fetchone()[0],
-    }
+    def _count(table: str) -> int:
+        cur.execute(f"SELECT COUNT(*) AS n FROM {table}")
+        return cur.fetchone()["n"]
+
+    counts = {t: _count(t) for t in
+              ("dim_entity", "dim_entity_identifiers", "dim_portfolio", "fact_prices", "fact_positions")}
     logger.info(f"seeded reference DB: {counts}")
     return counts

@@ -4,43 +4,51 @@ Front-end + API layer for the investment analytics platform: three dashboards �
 **Price Viewer** (prices by source), **Positioning** (holdings + weights), and
 **Contribution** (per-holding contribution to portfolio return).
 
-> **Reference data only.** This repo's backend is *disposable scaffolding* built to
-> develop the front end. The authoritative ETL backend (PostgreSQL + psycopg v3)
-> lives on a different machine. Here, a SQLite "reference DB" stands in, seeded with
-> representative sample data following the documented schema. Porting to the real
-> backend is mechanical — swap `src/db/connection.py` internals for psycopg and change
-> `?` placeholders to `%s`. The HTTP/JSON API and the Next.js bundle port unchanged.
+> **PostgreSQL + psycopg v3 data layer.** The API talks to PostgreSQL through the
+> pooled `get_connection()` in `src/db/connection.py` (service SQL uses `%s`
+> placeholders + `dict_row`). This repo ships a reference schema (`src/db/schema/*.sql`)
+> and a deterministic seed (`src/db/build_reference_db.py`) so the dashboards have
+> representative data; point it at the real database via the connection env vars.
+> A reachable PostgreSQL is required to run the API with data. The HTTP/JSON API and
+> the Next.js bundle are backend-agnostic.
 
 ## Layout
 
 ```
-src/db/            reference backend: SQLite session, schema/*.sql, seed, build script
+src/db/            data layer: psycopg connection pool, schema/*.sql, seed, build script
 web/api/           FastAPI app (routes/ + services/) — JSON API on /api/...
 web/apps/dashboards/  Next.js 14 static-export app (the three dashboards)
-data/reference.db  generated SQLite DB (gitignored — rebuild any time)
 ```
 
 ## Run it (development)
 
-Three one-time / per-session steps. Use a `bash` shell.
+Use a `bash` shell.
 
 **1. Python deps** (corporate SSL interception requires the trusted-host flags):
 ```bash
 pip install --trusted-host pypi.org --trusted-host files.pythonhosted.org \
-    fastapi "uvicorn[standard]"
+    fastapi "uvicorn[standard]" "psycopg[binary]" psycopg_pool
 ```
 
-**2. Build the reference DB** (creates `data/reference.db`):
+**2. PostgreSQL** — put your credentials in `.env` (auto-loaded by
+`src/db/connection.py`; gitignored), then create the database:
+```bash
+cp .env.example .env        # then edit: set PGPASSWORD (and PGUSER/PGDATABASE if not default)
+PYTHONPATH=. python src/db/create_database.py     # creates the DB if it doesn't exist
+```
+(`DATABASE_URL` is honored too; real env vars override `.env`.)
+
+**3. Build the schema + seed data** (drops & recreates the tables, then seeds):
 ```bash
 PYTHONPATH=. python src/db/build_reference_db.py
 ```
 
-**3a. Start the API** (terminal A):
+**4a. Start the API** (terminal A):
 ```bash
 PYTHONPATH=. python -m uvicorn web.api.main:app --reload --port 8000
 ```
 
-**3b. Start the front end** (terminal B):
+**4b. Start the front end** (terminal B):
 ```bash
 cd web/apps/dashboards
 npm config set strict-ssl false      # one-time: corporate SSL interception

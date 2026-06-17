@@ -27,7 +27,7 @@ def get_holdings(portfolio_id: int, reference_date: str | None = None) -> dict:
         cur.execute(
             """SELECT portfolio_id, internal_code, source, portfolio_type,
                       display_name, base_currency, status
-               FROM dim_portfolio WHERE portfolio_id = ?""",
+               FROM dim_portfolio WHERE portfolio_id = %s""",
             (portfolio_id,),
         )
         pf_row = cur.fetchone()
@@ -39,14 +39,14 @@ def get_holdings(portfolio_id: int, reference_date: str | None = None) -> dict:
         # overall if none given), so any free-form date from the range picker works.
         if reference_date is None:
             cur.execute(
-                "SELECT MAX(reference_date) AS d FROM fact_positions WHERE portfolio_id = ?",
+                "SELECT MAX(reference_date) AS d FROM fact_positions WHERE portfolio_id = %s",
                 (portfolio_id,),
             )
             reference_date = cur.fetchone()["d"]
         else:
             cur.execute(
                 """SELECT MAX(reference_date) AS d FROM fact_positions
-                   WHERE portfolio_id = ? AND reference_date <= ?""",
+                   WHERE portfolio_id = %s AND reference_date <= %s""",
                 (portfolio_id, reference_date),
             )
             reference_date = cur.fetchone()["d"]
@@ -56,7 +56,7 @@ def get_holdings(portfolio_id: int, reference_date: str | None = None) -> dict:
                       p.source, p.quantity, p.market_value, p.weight, p.price_used, p.currency
                FROM fact_positions p
                JOIN dim_entity e ON e.entity_id = p.entity_id
-               WHERE p.portfolio_id = ? AND p.reference_date = ?
+               WHERE p.portfolio_id = %s AND p.reference_date = %s
                ORDER BY p.market_value DESC""",
             (portfolio_id, reference_date),
         )

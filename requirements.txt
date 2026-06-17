@@ -1,4 +1,5 @@
-# Backend (reference / front-end development).
-# On the real ETL machine, add: psycopg[binary], psycopg_pool  (PostgreSQL).
+# Backend: FastAPI API + PostgreSQL data layer (psycopg v3).
 fastapi>=0.110
 uvicorn[standard]>=0.29
+psycopg[binary]>=3.2
+psycopg_pool>=3.2

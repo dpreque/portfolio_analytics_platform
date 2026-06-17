@@ -23,7 +23,7 @@ def get_price_series(
         cur = conn.cursor()
         cur.execute(
             """SELECT entity_id, display_name, asset_class, sector, isin, ticker, base_currency
-               FROM dim_entity WHERE entity_id = ?""",
+               FROM dim_entity WHERE entity_id = %s""",
             (entity_id,),
         )
         entity_row = cur.fetchone()
@@ -34,17 +34,17 @@ def get_price_series(
         sql = """
             SELECT source, reference_date, price
             FROM fact_prices
-            WHERE entity_id = ?
+            WHERE entity_id = %s
         """
         params: list = [entity_id]
         if date_from:
-            sql += " AND reference_date >= ?"
+            sql += " AND reference_date >= %s"
             params.append(date_from)
         if date_to:
-            sql += " AND reference_date <= ?"
+            sql += " AND reference_date <= %s"
             params.append(date_to)
         if sources:
-            placeholders = ",".join("?" for _ in sources)
+            placeholders = ",".join("%s" for _ in sources)
             sql += f" AND source IN ({placeholders})"
             params += sources
         sql += " ORDER BY source, reference_date"

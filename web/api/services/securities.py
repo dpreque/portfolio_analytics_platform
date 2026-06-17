@@ -20,10 +20,10 @@ def list_securities(search: str | None = None, limit: int = 100) -> list[dict]:
     """
     params: list = []
     if search:
-        sql += " WHERE display_name LIKE ? OR ticker LIKE ? OR isin LIKE ?"
+        sql += " WHERE display_name LIKE %s OR ticker LIKE %s OR isin LIKE %s"
         like = f"%{search}%"
         params += [like, like, like]
-    sql += " ORDER BY display_name LIMIT ?"
+    sql += " ORDER BY display_name LIMIT %s"
     params.append(limit)
 
     with get_connection() as conn:
