@@ -1,20 +1,16 @@
 # web/api/services/contribution_providers.py
 # ---------------------------------------------------------------------------
-# Contribution data-access providers (the migration seam for fact_contribution).
+# Contribution data-access providers.
 # ---------------------------------------------------------------------------
-# Two interchangeable providers produce the SAME response shape:
+# DerivedContributionProvider computes contribution on the fly from
+# fact_positions x fact_prices (the pgetl schema has no fact_contribution table):
+#   return_i        = price_i(d1) / price_i(d0) - 1
+#   contribution_i  = weight_i(d0) * return_i
+# Prices are resolved through series_registry (entity_id, field='PX_LAST', source).
 #
-#   DerivedContributionProvider  -- today. Computes contribution on the fly from
-#                                   fact_positions x fact_prices (single-period
-#                                   buy-and-hold approximation).
-#   FactContributionProvider     -- future. Reads precomputed rows straight from
-#                                   the fact_contribution table.
-#
-# `get_contribution_provider()` picks the fact-table provider automatically once
-# fact_contribution has data, else falls back to derived. The route and the
-# front end never change -- migrating is a data event, not a code change.
-#
-# To force a provider (tests / ops), set env CONTRIBUTION_PROVIDER=derived|fact.
+# A FactContributionProvider seam remains for a hypothetical precomputed table;
+# get_contribution_provider() falls back to derived whenever that table is absent
+# (it is, in pgetl) or empty. Force via env CONTRIBUTION_PROVIDER=derived|fact.
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
@@ -28,15 +24,18 @@ from src.db.connection import get_connection
 
 logger = logging.getLogger(__name__)
 
+# asset_class derived from entity_type + which extension table the security is in.
+_ASSET_CLASS = """
+    CASE WHEN e.entity_type = 'cash'    THEN 'cash'
+         WHEN eq.security_id IS NOT NULL THEN 'equity'
+         WHEN bd.security_id IS NOT NULL THEN 'bond'
+         WHEN fnd.security_id IS NOT NULL OR e.entity_type = 'fund' THEN 'fund'
+         ELSE 'security' END
+"""
+
 
 class ContributionProvider(Protocol):
-    """Read-side contract for contribution data. Both providers return:
-    {portfolio, period, snapshot_date, source, portfolio_return, holdings[], by_asset_class[]}.
-    """
-
-    def get_contribution(
-        self, portfolio_id: int, date_from: str, date_to: str, source: str | None
-    ) -> dict: ...
+    def get_contribution(self, portfolio_id: int, date_from: str, date_to: str, source: str | None) -> dict: ...
 
 
 # ---------------------------------------------------------------------------
@@ -44,8 +43,7 @@ class ContributionProvider(Protocol):
 # ---------------------------------------------------------------------------
 def _portfolio(cur: psycopg.Cursor, portfolio_id: int) -> dict | None:
     cur.execute(
-        """SELECT portfolio_id, internal_code, display_name, base_currency
-           FROM dim_portfolio WHERE portfolio_id = %s""",
+        "SELECT portfolio_id, procode, display_name, base_currency FROM dim_portfolio WHERE portfolio_id = %s",
         (portfolio_id,),
     )
     row = cur.fetchone()
@@ -53,7 +51,6 @@ def _portfolio(cur: psycopg.Cursor, portfolio_id: int) -> dict | None:
 
 
 def _bucket_contribution(holdings: list[dict]) -> list[dict]:
-    """Aggregate contribution + weight by asset_class, descending by contribution."""
     agg: dict[str, dict] = {}
     for h in holdings:
         k = h["asset_class"] or "unknown"
@@ -68,33 +65,50 @@ def _bucket_contribution(holdings: list[dict]) -> list[dict]:
 
 
 def _shape(portfolio: dict, date_from: str, date_to: str, source: str | None,
-           snapshot_date: str | None, holdings: list[dict]) -> dict:
-    """Assemble the common response envelope from a list of per-holding rows."""
+           snapshot_date, holdings: list[dict]) -> dict:
     portfolio_return = round(sum(h["contribution"] for h in holdings), 6)
-    by_asset_class = _bucket_contribution(holdings)
     holdings = sorted(holdings, key=lambda h: h["contribution"], reverse=True)
     return {
         "portfolio": portfolio,
         "period": {"from": date_from, "to": date_to},
-        "snapshot_date": snapshot_date,
+        "snapshot_date": snapshot_date.isoformat() if hasattr(snapshot_date, "isoformat") else snapshot_date,
         "source": source,
         "portfolio_return": portfolio_return,
         "holdings": holdings,
-        "by_asset_class": by_asset_class,
+        "by_asset_class": _bucket_contribution(holdings),
     }
+
+
+def _price_at(cur: psycopg.Cursor, entity_id: int, on_or_before: str, source: str | None) -> float | None:
+    """Latest price for entity on/before a date, via series_registry. Prefers
+    `source`, else bloomberg, else any."""
+    if source:
+        cur.execute(
+            """SELECT fp.price FROM fact_prices fp
+               JOIN series_registry sr ON sr.series_id = fp.series_id
+               WHERE sr.entity_id = %s AND sr.domain = 'prices'
+                 AND fp.date <= %s::date AND sr.source = %s
+               ORDER BY fp.date DESC LIMIT 1""",
+            (entity_id, on_or_before, source),
+        )
+        row = cur.fetchone()
+        if row:
+            return row["price"]
+    cur.execute(
+        """SELECT fp.price FROM fact_prices fp
+           JOIN series_registry sr ON sr.series_id = fp.series_id
+           WHERE sr.entity_id = %s AND sr.domain = 'prices' AND fp.date <= %s::date
+           ORDER BY (sr.source = 'bloomberg') DESC, fp.date DESC LIMIT 1""",
+        (entity_id, on_or_before),
+    )
+    row = cur.fetchone()
+    return row["price"] if row else None
 
 
 # ---------------------------------------------------------------------------
 # Derived provider (current): fact_positions x fact_prices
 # ---------------------------------------------------------------------------
 class DerivedContributionProvider:
-    """contribution_i = weight_i(d0) * (price_i(d1)/price_i(d0) - 1).
-
-    Beginning weights from the position snapshot on/before d0; prices the latest
-    on/before each endpoint. Ignores intra-period rebalancing -- fine as a
-    reference, and isolated here so it is easy to retire.
-    """
-
     def get_contribution(self, portfolio_id, date_from, date_to, source=None) -> dict:
         with get_connection() as conn:
             cur = conn.cursor()
@@ -103,8 +117,7 @@ class DerivedContributionProvider:
                 return {"portfolio": None}
 
             cur.execute(
-                """SELECT MAX(reference_date) AS d FROM fact_positions
-                   WHERE portfolio_id = %s AND reference_date <= %s""",
+                "SELECT MAX(date) AS d FROM fact_positions WHERE portfolio_id = %s AND date <= %s::date",
                 (portfolio_id, date_from),
             )
             snap = cur.fetchone()["d"]
@@ -112,10 +125,18 @@ class DerivedContributionProvider:
                 return _shape(portfolio, date_from, date_to, source, None, [])
 
             cur.execute(
-                """SELECT p.entity_id, e.display_name, e.asset_class, e.sector, p.weight
-                   FROM fact_positions p
-                   JOIN dim_entity e ON e.entity_id = p.entity_id
-                   WHERE p.portfolio_id = %s AND p.reference_date = %s""",
+                f"""SELECT p.security_entity_id AS entity_id,
+                           COALESCE(s.security_name, s.name, e.name) AS display_name,
+                           {_ASSET_CLASS} AS asset_class,
+                           eq.sector AS sector,
+                           p.weight
+                    FROM fact_positions p
+                    JOIN dim_entity e ON e.entity_id = p.security_entity_id
+                    LEFT JOIN dim_security        s   ON s.entity_id   = e.entity_id
+                    LEFT JOIN dim_security_equity eq  ON eq.security_id = s.security_id
+                    LEFT JOIN dim_security_fund   fnd ON fnd.security_id = s.security_id
+                    LEFT JOIN dim_security_bond   bd  ON bd.security_id = s.security_id
+                    WHERE p.portfolio_id = %s AND p.date = %s""",
                 (portfolio_id, snap),
             )
             positions = [dict(row) for row in cur.fetchall()]
@@ -139,70 +160,40 @@ class DerivedContributionProvider:
         return _shape(portfolio, date_from, date_to, source, snap, holdings)
 
 
-def _price_at(cur: psycopg.Cursor, entity_id: int, on_or_before: str, source: str | None) -> float | None:
-    """Latest price for entity on-or-before a date. Prefers `source`, else bloomberg, else any."""
-    if source:
-        cur.execute(
-            """SELECT price FROM fact_prices
-               WHERE entity_id = %s AND reference_date <= %s AND source = %s
-               ORDER BY reference_date DESC LIMIT 1""",
-            (entity_id, on_or_before, source),
-        )
-        row = cur.fetchone()
-        if row:
-            return row["price"]
-    cur.execute(
-        """SELECT price FROM fact_prices
-           WHERE entity_id = %s AND reference_date <= %s
-           ORDER BY (source = 'bloomberg') DESC, reference_date DESC LIMIT 1""",
-        (entity_id, on_or_before),
-    )
-    row = cur.fetchone()
-    return row["price"] if row else None
-
-
 # ---------------------------------------------------------------------------
-# Fact provider (future): read precomputed fact_contribution rows
+# Fact provider (dormant): would read a precomputed fact_contribution table.
+# Not part of the pgetl schema -> selection falls back to derived.
 # ---------------------------------------------------------------------------
 class FactContributionProvider:
-    """Reads contribution straight from fact_contribution for the exact period.
-
-    Note: contributions are stored per precomputed period, so date_from/date_to
-    must match a stored (period_start, period_end). A future endpoint can expose
-    the available periods; until then this provider activates only when the
-    table holds data for the requested period.
-    """
-
     def get_contribution(self, portfolio_id, date_from, date_to, source=None) -> dict:
         with get_connection() as conn:
             cur = conn.cursor()
             portfolio = _portfolio(cur, portfolio_id)
             if portfolio is None:
                 return {"portfolio": None}
-
             sql = """
-                SELECT c.entity_id, e.display_name, e.asset_class, e.sector,
-                       c.weight, c.period_return AS return, c.contribution
+                SELECT c.entity_id,
+                       COALESCE(s.security_name, s.name, e.name) AS display_name,
+                       e.entity_type, c.weight, c.period_return AS return, c.contribution
                 FROM fact_contribution c
                 JOIN dim_entity e ON e.entity_id = c.entity_id
-                WHERE c.portfolio_id = %s AND c.period_start = %s AND c.period_end = %s
+                LEFT JOIN dim_security s ON s.entity_id = e.entity_id
+                WHERE c.portfolio_id = %s AND c.period_start = %s::date AND c.period_end = %s::date
             """
             params: list = [portfolio_id, date_from, date_to]
             if source:
                 sql += " AND c.source = %s"
                 params.append(source)
-
             cur.execute(sql, params)
             holdings = [{
                 "entity_id": r["entity_id"],
                 "display_name": r["display_name"],
-                "asset_class": r["asset_class"],
-                "sector": r["sector"],
+                "asset_class": r.get("entity_type"),
+                "sector": None,
                 "weight": round(r["weight"] or 0.0, 6),
                 "return": round(r["return"] or 0.0, 6),
                 "contribution": round(r["contribution"] or 0.0, 6),
             } for r in cur.fetchall()]
-
         return _shape(portfolio, date_from, date_to, source, date_from, holdings)
 
 
@@ -210,22 +201,19 @@ class FactContributionProvider:
 # Provider selection
 # ---------------------------------------------------------------------------
 def _fact_table_has_data() -> bool:
-    """True if fact_contribution exists and holds at least one row."""
-    # A missing table raises psycopg.Error; the exception propagates out of the
-    # with-block so the connection rolls back, and we treat "can't read it" as
-    # "no data" -> derived provider.
+    """True if a fact_contribution table exists and holds rows. In pgetl it does
+    not exist, so the SELECT raises -> rolled back -> treated as 'no data'."""
     try:
         with get_connection() as conn:
             cur = conn.cursor()
             cur.execute("SELECT 1 FROM fact_contribution LIMIT 1")
             return cur.fetchone() is not None
     except Exception as exc:
-        logger.warning(f"fact_contribution probe failed, using derived provider: {exc}")
+        logger.debug(f"fact_contribution probe -> derived provider: {exc}")
         return False
 
 
 def get_contribution_provider() -> ContributionProvider:
-    """Pick the provider: explicit env override, else fact-table if populated, else derived."""
     override = os.environ.get("CONTRIBUTION_PROVIDER", "").lower()
     if override == "fact":
         return FactContributionProvider()

@@ -94,7 +94,7 @@ export default function PositioningPage() {
     market_value: <span className="num">{num(aum, 0)}</span>,
     weight: <span className="num">{pct(holdings.reduce((a, h) => a + (h.weight || 0), 0))}</span>,
   };
-  const exportName = `${data?.portfolio?.internal_code || 'portfolio'}_positioning_${range.from}_${range.to}`;
+  const exportName = `${data?.portfolio?.procode || 'portfolio'}_positioning_${range.from}_${range.to}`;
 
   return (
     <div>

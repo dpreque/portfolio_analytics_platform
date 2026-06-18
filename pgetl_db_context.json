@@ -1,0 +1,543 @@
+{
+  "meta": {
+    "project": "pgetl — Profuturo AFP market-data ETL & analytics platform",
+    "purpose": "Database architecture context for future sessions. Captures DDLs, keys, relationships, conventions, and open decisions.",
+    "generated": "2026-06-18",
+    "source_of_truth": "Transcribed from the live PostgreSQL files under \\\\PFLMVIPR1FS0222\\Area de Inversiones\\5.Database\\pgetl\\src\\db\\schema\\ (NOT schema_old\\, which is the retired SQLite version).",
+    "transcription_caveat": "Settled tables (01-21) transcribed from screenshots and should be verified against the files. Tables 22-24 are UNDER CONSTRUCTION and shown in proposed-coherent form, not as currently on disk."
+  },
+
+  "engine": {
+    "rdbms": "PostgreSQL",
+    "migrated_from": "SQLite (retired; old DDL preserved in src/db/schema_old/)",
+    "driver": "psycopg v3 (psycopg[binary])",
+    "connection": "@contextmanager get_connection() -> yields conn, auto-commit on success, rollback+raise on error, close in finally. Callers use `with get_connection() as conn:` and must NOT call commit/rollback/close manually.",
+    "encoding_note": "Files are saved UTF-8 with BOM, Windows CRLF."
+  },
+
+  "conventions": {
+    "file_naming": "NN_<name>.sql under src/db/schema/, two-digit zero-padded prefix, applied in numeric order.",
+    "header_comment": "First line is the numbered filename, e.g. `-- 17_stg_prices_sbs_vector_completo.sql`.",
+    "surrogate_pk": "INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY (PG identity, replaced SQLite AUTOINCREMENT).",
+    "numeric_facts": "DOUBLE PRECISION for prices/analytics across fact_prices and all SBS/Bloomberg staging (replaced SQLite REAL). NOTE: positions domain currently uses NUMERIC — see open_decisions.",
+    "dates": "DATE for business/reference dates (replaced SQLite TEXT 'YYYY-MM-DD').",
+    "timestamps": "TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP for audit/load columns (replaced SQLite TEXT datetime('now')).",
+    "audit_columns": "created_at + updated_at on dimensions; loaded_at on staging/fact load tables.",
+    "internal_code": "procode TEXT NOT NULL is the house name for an internal code (dim_entity, dim_portfolio).",
+    "index_prefix": "idx_<table>_<col(s)> is the house standard. The positions domain (22/23/24) currently deviates with ix_ — normalize to idx_.",
+    "booleans": "BOOLEAN NOT NULL DEFAULT FALSE (replaced SQLite INTEGER 0/1 CHECK).",
+    "nullable_enum_checks": "CHECK (col IN (...) OR col IS NULL) — explicit IS NULL rather than NULL inside the IN list."
+  },
+
+  "lifecycle_status": {
+    "canonical_values": ["backfill-pending", "active", "suspended", "inactive", "error_hold"],
+    "delimiter_warning": "series_registry mixes delimiters: 'backfill-pending' (hyphen) vs 'error_hold' (underscore). dim_portfolio's banner writes 'error-hold' (hyphen). Pick ONE literal set and reuse verbatim everywhere that inherits this lifecycle."
+  },
+
+  "modeling_principles": {
+    "entity_grain": "An entity = a tradeable instrument/security, NOT an issuer. Each distinct security (equity class, each bond) is its own dim_entity row with its own ISIN.",
+    "issuer_relationship": "Issuer/parent links are represented separately (e.g. via dim_entity_identifiers / parent linkage), never by collapsing siblings into one entity_id.",
+    "why": "series_registry uniqueness is (entity_id, field, source); sharing an entity_id across instruments would collide (e.g. two PX_LAST series for the same issuer).",
+    "x_isin": "SBS X-ISIN instruments are registered as always-separate entities for the same reason.",
+    "cash_positions": "fact_positions expects cash to point security_entity_id at synthetic per-currency dim_entity rows with entity_type='cash' — BUT dim_entity's CHECK does not currently allow 'cash'. See known_inconsistencies."
+  },
+
+  "tables": {
+    "dim_entity": {
+      "file": "01_dim_entity.sql",
+      "status": "settled",
+      "purpose": "Anchor table for all entities (securities, macro variables, etc.). One row per unique real-world entity regardless of domain.",
+      "columns": [
+        {"name": "entity_id", "type": "INTEGER GENERATED ALWAYS AS IDENTITY", "pk": true},
+        {"name": "procode", "type": "TEXT", "nullable": false},
+        {"name": "entity_type", "type": "TEXT", "nullable": false, "check": "IN ('security','macro','index','fund')"},
+        {"name": "name", "type": "TEXT", "nullable": true},
+        {"name": "created_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"},
+        {"name": "updated_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"}
+      ],
+      "primary_key": ["entity_id"],
+      "ddl": "CREATE TABLE IF NOT EXISTS dim_entity (\n    entity_id   INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n    procode     TEXT NOT NULL,\n    entity_type TEXT NOT NULL CHECK (entity_type IN ('security','macro','index','fund')),\n    name        TEXT,\n    created_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    updated_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP\n);"
+    },
+
+    "dim_security": {
+      "file": "02_dim_security.sql",
+      "status": "settled",
+      "purpose": "Domain-specific attributes for entity_type='security'. SCD Type 1 for now (attributes overwritten in place).",
+      "columns": [
+        {"name": "security_id", "type": "INTEGER GENERATED ALWAYS AS IDENTITY", "pk": true},
+        {"name": "entity_id", "type": "INTEGER", "nullable": false, "unique": true, "fk": "dim_entity(entity_id)"},
+        {"name": "ticker", "type": "TEXT", "nullable": true},
+        {"name": "name", "type": "TEXT", "nullable": true},
+        {"name": "short_name", "type": "TEXT", "nullable": true},
+        {"name": "security_name", "type": "TEXT", "nullable": true},
+        {"name": "sec_num_des", "type": "TEXT", "nullable": true},
+        {"name": "currency", "type": "TEXT", "nullable": true},
+        {"name": "country", "type": "TEXT", "nullable": true},
+        {"name": "exchange", "type": "TEXT", "nullable": true},
+        {"name": "market_sector", "type": "TEXT", "nullable": true},
+        {"name": "security_type", "type": "TEXT", "nullable": true},
+        {"name": "created_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"},
+        {"name": "updated_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"}
+      ],
+      "primary_key": ["security_id"],
+      "note": "parsekyable and isin columns exist commented-out in the source; identifiers live in dim_entity_identifiers instead.",
+      "ddl": "CREATE TABLE IF NOT EXISTS dim_security (\n    security_id   INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n    entity_id     INTEGER NOT NULL UNIQUE REFERENCES dim_entity (entity_id),\n    ticker        TEXT,\n    name          TEXT,\n    short_name    TEXT,\n    security_name TEXT,\n    sec_num_des   TEXT,\n    currency      TEXT,\n    country       TEXT,\n    exchange      TEXT,\n    market_sector TEXT,\n    security_type TEXT,\n    created_at    TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    updated_at    TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP\n);"
+    },
+
+    "dim_security_equity": {
+      "file": "03_dim_security_equity.sql",
+      "status": "settled",
+      "purpose": "Equity-specific extension of dim_security (1:1).",
+      "columns": [
+        {"name": "security_id", "type": "INTEGER", "pk": true, "fk": "dim_security(security_id)"},
+        {"name": "sector", "type": "TEXT", "nullable": true},
+        {"name": "created_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"},
+        {"name": "updated_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"}
+      ],
+      "primary_key": ["security_id"],
+      "ddl": "CREATE TABLE IF NOT EXISTS dim_security_equity (\n    security_id INTEGER PRIMARY KEY REFERENCES dim_security (security_id),\n    sector      TEXT,\n    created_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    updated_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP\n);"
+    },
+
+    "dim_security_fund": {
+      "file": "04_dim_security_fund.sql",
+      "status": "settled",
+      "purpose": "Fund-specific extension of dim_security (1:1).",
+      "columns": [
+        {"name": "security_id", "type": "INTEGER", "pk": true, "fk": "dim_security(security_id)"},
+        {"name": "fund_type", "type": "TEXT", "nullable": true},
+        {"name": "asset_class", "type": "TEXT", "nullable": true},
+        {"name": "geography", "type": "TEXT", "nullable": true},
+        {"name": "objective", "type": "TEXT", "nullable": true},
+        {"name": "created_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"},
+        {"name": "updated_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"}
+      ],
+      "primary_key": ["security_id"],
+      "ddl": "CREATE TABLE IF NOT EXISTS dim_security_fund (\n    security_id INTEGER PRIMARY KEY REFERENCES dim_security (security_id),\n    fund_type   TEXT,\n    asset_class TEXT,\n    geography   TEXT,\n    objective   TEXT,\n    created_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    updated_at  TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP\n);"
+    },
+
+    "dim_security_bond": {
+      "file": "05_dim_security_bond.sql (assumed)",
+      "status": "referenced_but_not_captured",
+      "purpose": "Bond-specific extension of dim_security. Referenced by SBS rf_local / rf_exterior staging comments ('also fed to dim_security_bond'), but its DDL was not visible in the source screenshots (file 05 body not shown). Fill in from the actual file before relying on it."
+    },
+
+    "series_registry": {
+      "file": "09_series_registry.sql",
+      "status": "settled",
+      "purpose": "Operational registry, one row per (entity, field, source). Spine of the system: pipelines query here at runtime to decide what to process and how.",
+      "columns": [
+        {"name": "series_id", "type": "INTEGER GENERATED ALWAYS AS IDENTITY", "pk": true},
+        {"name": "entity_id", "type": "INTEGER", "nullable": false, "fk": "dim_entity(entity_id)"},
+        {"name": "field", "type": "TEXT", "nullable": false},
+        {"name": "domain", "type": "TEXT", "nullable": false, "check": "IN ('prices','fundamentals','macro')"},
+        {"name": "source", "type": "TEXT", "nullable": false},
+        {"name": "frequency", "type": "TEXT", "nullable": false},
+        {"name": "default_start_date", "type": "DATE", "nullable": true},
+        {"name": "status", "type": "TEXT", "nullable": false, "default": "'backfill-pending'", "check": "IN ('backfill-pending','active','suspended','inactive','error_hold')"},
+        {"name": "release_pattern", "type": "TEXT", "nullable": true, "check": "IN ('fixed','irregular','poll') OR IS NULL"},
+        {"name": "release_lag_days", "type": "INTEGER", "nullable": true},
+        {"name": "allow_revisions", "type": "BOOLEAN", "nullable": false, "default": "FALSE"},
+        {"name": "revision_lookback", "type": "INTEGER", "nullable": true},
+        {"name": "last_run_at", "type": "TIMESTAMPTZ", "nullable": true},
+        {"name": "last_run_status", "type": "TEXT", "nullable": true, "check": "IN ('success','failure','partial') OR IS NULL"},
+        {"name": "last_loaded_date", "type": "DATE", "nullable": true},
+        {"name": "created_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"},
+        {"name": "updated_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"}
+      ],
+      "primary_key": ["series_id"],
+      "unique": [["entity_id", "field", "source"]],
+      "indexes": [
+        {"name": "idx_series_registry_domain", "cols": ["domain"]},
+        {"name": "idx_series_registry_status", "cols": ["status"]},
+        {"name": "idx_series_registry_frequency", "cols": ["frequency"]},
+        {"name": "idx_series_registry_entity", "cols": ["entity_id"]}
+      ],
+      "ddl": "CREATE TABLE IF NOT EXISTS series_registry (\n    series_id          INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n    entity_id          INTEGER NOT NULL REFERENCES dim_entity (entity_id),\n    field              TEXT NOT NULL,\n    domain             TEXT NOT NULL CHECK (domain IN ('prices','fundamentals','macro')),\n    source             TEXT NOT NULL,\n    frequency          TEXT NOT NULL,\n    default_start_date DATE,\n    status             TEXT NOT NULL DEFAULT 'backfill-pending'\n        CHECK (status IN ('backfill-pending','active','suspended','inactive','error_hold')),\n    release_pattern    TEXT CHECK (release_pattern IN ('fixed','irregular','poll') OR release_pattern IS NULL),\n    release_lag_days   INTEGER,\n    allow_revisions    BOOLEAN NOT NULL DEFAULT FALSE,\n    revision_lookback  INTEGER,\n    last_run_at        TIMESTAMPTZ,\n    last_run_status    TEXT CHECK (last_run_status IN ('success','failure','partial') OR last_run_status IS NULL),\n    last_loaded_date   DATE,\n    created_at         TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    updated_at         TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    UNIQUE (entity_id, field, source)\n);"
+    },
+
+    "fact_prices": {
+      "file": "10_fact_prices.sql",
+      "status": "settled",
+      "purpose": "Daily price observations. Pure long format, one value per row. No revisions expected — upsert on (series_id, date) with DO NOTHING.",
+      "columns": [
+        {"name": "series_id", "type": "INTEGER", "nullable": false, "fk": "series_registry(series_id)"},
+        {"name": "date", "type": "DATE", "nullable": false},
+        {"name": "price", "type": "DOUBLE PRECISION", "nullable": false},
+        {"name": "source", "type": "TEXT", "nullable": false}
+      ],
+      "primary_key": ["series_id", "date"],
+      "indexes": [{"name": "idx_fact_prices_date", "cols": ["date"]}],
+      "note": "Source banner has a typo: 'upsert on (series_id, reference_data)'. The real PK is (series_id, date).",
+      "ddl": "CREATE TABLE IF NOT EXISTS fact_prices (\n    series_id INTEGER NOT NULL REFERENCES series_registry (series_id),\n    date      DATE NOT NULL,\n    price     DOUBLE PRECISION NOT NULL,\n    source    TEXT NOT NULL,\n    PRIMARY KEY (series_id, date)\n);"
+    },
+
+    "dim_entity_identifiers": {
+      "file": "13_dim_entity_identifiers.sql",
+      "status": "settled",
+      "purpose": "Maps internal entity_id to all vendor-specific identifiers. One row per (entity_id, id_type, source). Universal translator between internal surrogate keys and vendor-native identifiers used by pipeline extractors. Populated from seeds/identifiers.csv and enrichment pipelines.",
+      "columns": [
+        {"name": "entity_id", "type": "INTEGER", "nullable": false, "fk": "dim_entity(entity_id)"},
+        {"name": "id_type", "type": "TEXT", "nullable": false, "note": "parsekyable / isin / cusip / sedol / sbs"},
+        {"name": "id_value", "type": "TEXT", "nullable": false},
+        {"name": "source", "type": "TEXT", "nullable": false},
+        {"name": "is_primary", "type": "BOOLEAN", "nullable": false, "default": "FALSE"},
+        {"name": "created_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"}
+      ],
+      "primary_key": ["entity_id", "id_type", "source"],
+      "indexes": [
+        {"name": "idx_entity_identifiers_value", "cols": ["id_type", "id_value"], "note": "resolves entity_id from a vendor identifier"},
+        {"name": "idx_entity_identifiers_entity", "cols": ["entity_id"], "note": "retrieves all identifiers for an entity"}
+      ],
+      "ddl": "CREATE TABLE IF NOT EXISTS dim_entity_identifiers (\n    entity_id  INTEGER NOT NULL REFERENCES dim_entity (entity_id),\n    id_type    TEXT NOT NULL,   -- parsekyable / isin / cusip / sedol / sbs\n    id_value   TEXT NOT NULL,\n    source     TEXT NOT NULL,\n    is_primary BOOLEAN NOT NULL DEFAULT FALSE,\n    created_at TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    PRIMARY KEY (entity_id, id_type, source)\n);"
+    },
+
+    "stg_security_bloomberg": {
+      "file": "14_stg_security_bloomberg.sql",
+      "status": "settled",
+      "purpose": "Raw security attributes as returned by Bloomberg API. Long format: one row per (parsekyable, field, loaded_at). Populated by pipelines/dim/bloomberg/security/extract.py. Resolution step reads this and writes dim_security + dim_entity_identifiers. Rows never deleted (audit + re-resolution).",
+      "columns": [
+        {"name": "stg_id", "type": "INTEGER GENERATED ALWAYS AS IDENTITY", "pk": true},
+        {"name": "parsekyable", "type": "TEXT", "nullable": false},
+        {"name": "field", "type": "TEXT", "nullable": false},
+        {"name": "value", "type": "TEXT", "nullable": true},
+        {"name": "loaded_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"}
+      ],
+      "primary_key": ["stg_id"],
+      "unique": [["parsekyable", "field", "loaded_at"]],
+      "indexes": [
+        {"name": "idx_stg_security_bloomberg_ticker", "cols": ["parsekyable"]},
+        {"name": "idx_stg_security_bloomberg_field", "cols": ["field"]},
+        {"name": "idx_stg_security_bloomberg_loaded", "cols": ["loaded_at"]}
+      ],
+      "ddl": "CREATE TABLE IF NOT EXISTS stg_security_bloomberg (\n    stg_id      INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n    parsekyable TEXT NOT NULL,\n    field       TEXT NOT NULL,\n    value       TEXT,\n    loaded_at   TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    UNIQUE (parsekyable, field, loaded_at)\n);"
+    },
+
+    "stg_prices_bloomberg": {
+      "file": "16_stg_prices_bloomberg.sql",
+      "status": "settled",
+      "purpose": "Raw price observations as returned by Bloomberg API. Long format: one row per (parsekyable, field, date). Fact loader reads this and writes fact_prices. Retained after load for audit and re-processing.",
+      "columns": [
+        {"name": "stg_id", "type": "INTEGER GENERATED ALWAYS AS IDENTITY", "pk": true},
+        {"name": "parsekyable", "type": "TEXT", "nullable": false},
+        {"name": "field", "type": "TEXT", "nullable": false},
+        {"name": "date", "type": "DATE", "nullable": false},
+        {"name": "value", "type": "DOUBLE PRECISION", "nullable": false},
+        {"name": "loaded_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"}
+      ],
+      "primary_key": ["stg_id"],
+      "unique": [["parsekyable", "field", "date", "loaded_at"]],
+      "indexes": [
+        {"name": "idx_stg_prices_bloomberg_ticker", "cols": ["parsekyable"]},
+        {"name": "idx_stg_prices_bloomberg_date", "cols": ["date"]},
+        {"name": "idx_stg_prices_bloomberg_loaded", "cols": ["loaded_at"]}
+      ],
+      "ddl": "CREATE TABLE IF NOT EXISTS stg_prices_bloomberg (\n    stg_id      INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n    parsekyable TEXT NOT NULL,\n    field       TEXT NOT NULL,\n    date        DATE NOT NULL,\n    value       DOUBLE PRECISION NOT NULL,\n    loaded_at   TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    UNIQUE (parsekyable, field, date, loaded_at)\n);"
+    },
+
+    "stg_prices_sbs_vector_completo": {
+      "file": "17_stg_prices_sbs_vector_completo.sql",
+      "status": "settled",
+      "purpose": "Staging for SBS daily general prices file (vector_completo). Shared columns across all instrument types. One row per instrument per reference_date per load. Loaded by pipeline/prices/sbs/vector_completo/extract.py.",
+      "columns": [
+        {"name": "codigo_sbs", "type": "TEXT", "nullable": false},
+        {"name": "isin", "type": "TEXT", "nullable": true},
+        {"name": "nemonico", "type": "TEXT", "nullable": true},
+        {"name": "tipo_instrumento", "type": "TEXT", "nullable": true},
+        {"name": "emisor", "type": "TEXT", "nullable": true},
+        {"name": "moneda", "type": "TEXT", "nullable": true},
+        {"name": "precio", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "variacion", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "date", "type": "DATE", "nullable": false},
+        {"name": "loaded_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"}
+      ],
+      "primary_key": ["codigo_sbs", "date", "loaded_at"],
+      "indexes": [
+        {"name": "idx_stg_sbs_vector_completo_date", "cols": ["date"]},
+        {"name": "idx_stg_sbs_vector_completo_isin", "cols": ["isin"]}
+      ],
+      "ddl": "CREATE TABLE IF NOT EXISTS stg_prices_sbs_vector_completo (\n    codigo_sbs       TEXT NOT NULL,\n    isin             TEXT,\n    nemonico         TEXT,\n    tipo_instrumento TEXT,\n    emisor           TEXT,\n    moneda           TEXT,\n    precio           DOUBLE PRECISION,\n    variacion        DOUBLE PRECISION,\n    date             DATE NOT NULL,\n    loaded_at        TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    PRIMARY KEY (codigo_sbs, date, loaded_at)\n);"
+    },
+
+    "stg_prices_sbs_rf_local": {
+      "file": "18_stg_prices_sbs_rf_local.sql",
+      "status": "settled",
+      "purpose": "Staging for SBS local fixed income file (rf_local). Full bond analytics: YTM, spreads, duration, ratings, coupon dates, clean/dirty prices. One row per instrument per reference_date per load. Also feeds dim_security_bond.",
+      "columns": [
+        {"name": "codigo_sbs", "type": "TEXT", "nullable": false},
+        {"name": "isin", "type": "TEXT", "nullable": true},
+        {"name": "nemonico", "type": "TEXT", "nullable": true},
+        {"name": "tipo_instrumento", "type": "TEXT", "nullable": true},
+        {"name": "emisor", "type": "TEXT", "nullable": true},
+        {"name": "moneda", "type": "TEXT", "nullable": true},
+        {"name": "valor_facial", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "origen_precio", "type": "TEXT", "nullable": true, "note": "source of price (e.g. BVL, Bloomberg, SBS)"},
+        {"name": "fecha_emision", "type": "DATE", "nullable": true},
+        {"name": "fecha_vencimiento", "type": "DATE", "nullable": true},
+        {"name": "tasa_cupon", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "margen_libor", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "rating", "type": "TEXT", "nullable": true},
+        {"name": "ultimo_cupon", "type": "DATE", "nullable": true},
+        {"name": "proximo_cupon", "type": "DATE", "nullable": true},
+        {"name": "precio_limpio_monto", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "precio_limpio_pct", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "precio_sucio_monto", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "precio_sucio_pct", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "interes_corrido_monto", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "tir", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "spreads", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "tir_sin_opciones", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "duracion", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "variacion_precio_limpio", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "variacion_precio_sucio", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "variacion_tir", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "date", "type": "DATE", "nullable": false},
+        {"name": "loaded_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"}
+      ],
+      "primary_key": ["codigo_sbs", "date", "loaded_at"],
+      "indexes": [
+        {"name": "idx_stg_sbs_rf_local_date", "cols": ["date"]},
+        {"name": "idx_stg_sbs_rf_local_isin", "cols": ["isin"]}
+      ],
+      "ddl": "CREATE TABLE IF NOT EXISTS stg_prices_sbs_rf_local (\n    codigo_sbs              TEXT NOT NULL,\n    isin                    TEXT,\n    nemonico                TEXT,\n    tipo_instrumento        TEXT,\n    emisor                  TEXT,\n    moneda                  TEXT,\n    valor_facial            DOUBLE PRECISION,\n    origen_precio           TEXT,\n    fecha_emision           DATE,\n    fecha_vencimiento       DATE,\n    tasa_cupon              DOUBLE PRECISION,\n    margen_libor            DOUBLE PRECISION,\n    rating                  TEXT,\n    ultimo_cupon            DATE,\n    proximo_cupon           DATE,\n    precio_limpio_monto     DOUBLE PRECISION,\n    precio_limpio_pct       DOUBLE PRECISION,\n    precio_sucio_monto      DOUBLE PRECISION,\n    precio_sucio_pct        DOUBLE PRECISION,\n    interes_corrido_monto   DOUBLE PRECISION,\n    tir                     DOUBLE PRECISION,\n    spreads                 DOUBLE PRECISION,\n    tir_sin_opciones        DOUBLE PRECISION,\n    duracion                DOUBLE PRECISION,\n    variacion_precio_limpio DOUBLE PRECISION,\n    variacion_precio_sucio  DOUBLE PRECISION,\n    variacion_tir           DOUBLE PRECISION,\n    date                    DATE NOT NULL,\n    loaded_at               TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    PRIMARY KEY (codigo_sbs, date, loaded_at)\n);"
+    },
+
+    "stg_prices_sbs_rf_exterior": {
+      "file": "19_stg_prices_sbs_rf_exterior.sql",
+      "status": "settled",
+      "purpose": "Staging for SBS foreign fixed income file (rf_exterior). Similar to rf_local but fewer analytics fields — no TIR, spread, duration, or rating. Clean/dirty prices and coupon dates retained. Also feeds dim_security_bond.",
+      "columns": [
+        {"name": "codigo_sbs", "type": "TEXT", "nullable": false},
+        {"name": "isin", "type": "TEXT", "nullable": true},
+        {"name": "tipo_instrumento", "type": "TEXT", "nullable": true},
+        {"name": "emisor", "type": "TEXT", "nullable": true},
+        {"name": "moneda", "type": "TEXT", "nullable": true},
+        {"name": "valor_facial", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "origen_precio", "type": "TEXT", "nullable": true},
+        {"name": "fecha_emision", "type": "DATE", "nullable": true},
+        {"name": "fecha_vencimiento", "type": "DATE", "nullable": true},
+        {"name": "tasa_cupon", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "ultimo_cupon", "type": "DATE", "nullable": true},
+        {"name": "proximo_cupon", "type": "DATE", "nullable": true},
+        {"name": "precio_limpio_monto", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "precio_limpio_pct", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "precio_sucio_monto", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "precio_sucio_pct", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "interes_corrido_monto", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "variacion_precio_sucio", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "date", "type": "DATE", "nullable": false},
+        {"name": "loaded_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"}
+      ],
+      "primary_key": ["codigo_sbs", "date", "loaded_at"],
+      "indexes": [
+        {"name": "idx_stg_sbs_rf_exterior_date", "cols": ["date"]},
+        {"name": "idx_stg_sbs_rf_exterior_isin", "cols": ["isin"]}
+      ],
+      "note": "Unlike the other SBS staging tables, this one has NO nemonico column. Confirm whether that is intentional.",
+      "ddl": "CREATE TABLE IF NOT EXISTS stg_prices_sbs_rf_exterior (\n    codigo_sbs             TEXT NOT NULL,\n    isin                   TEXT,\n    tipo_instrumento       TEXT,\n    emisor                 TEXT,\n    moneda                 TEXT,\n    valor_facial           DOUBLE PRECISION,\n    origen_precio          TEXT,\n    fecha_emision          DATE,\n    fecha_vencimiento      DATE,\n    tasa_cupon             DOUBLE PRECISION,\n    ultimo_cupon           DATE,\n    proximo_cupon          DATE,\n    precio_limpio_monto    DOUBLE PRECISION,\n    precio_limpio_pct      DOUBLE PRECISION,\n    precio_sucio_monto     DOUBLE PRECISION,\n    precio_sucio_pct       DOUBLE PRECISION,\n    interes_corrido_monto  DOUBLE PRECISION,\n    variacion_precio_sucio DOUBLE PRECISION,\n    date                   DATE NOT NULL,\n    loaded_at              TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    PRIMARY KEY (codigo_sbs, date, loaded_at)\n);"
+    },
+
+    "stg_prices_sbs_tipo_cambio": {
+      "file": "20_stg_prices_sbs_tipo_cambio.sql",
+      "status": "settled",
+      "purpose": "Staging for SBS FX rates file (tipo_cambio). Reports bid/ask for currency pairs in both original currency and PEN terms, from multiple sources (SBS, Bloomberg, etc.). One row per currency pair per source per reference_date per load. date is derived from the file's internal 'fecha' column rather than acquisition date.",
+      "columns": [
+        {"name": "moneda_nocional", "type": "TEXT", "nullable": false, "note": "base currency"},
+        {"name": "moneda_contraparte", "type": "TEXT", "nullable": false, "note": "quote currency"},
+        {"name": "fuente", "type": "TEXT", "nullable": false, "note": "price source (SBS, Bloomberg, etc.)"},
+        {"name": "bid_original", "type": "DOUBLE PRECISION", "nullable": true, "note": "bid in original currency terms"},
+        {"name": "ask_original", "type": "DOUBLE PRECISION", "nullable": true, "note": "ask in original currency terms"},
+        {"name": "pen_bid", "type": "DOUBLE PRECISION", "nullable": true, "note": "bid expressed in PEN"},
+        {"name": "pen_ask", "type": "DOUBLE PRECISION", "nullable": true, "note": "ask expressed in PEN"},
+        {"name": "var_bid", "type": "DOUBLE PRECISION", "nullable": true, "note": "daily variation bid"},
+        {"name": "var_ask", "type": "DOUBLE PRECISION", "nullable": true, "note": "daily variation ask"},
+        {"name": "date", "type": "DATE", "nullable": false, "note": "derived from fecha column"},
+        {"name": "loaded_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"}
+      ],
+      "primary_key": ["moneda_nocional", "moneda_contraparte", "fuente", "date", "loaded_at"],
+      "indexes": [
+        {"name": "idx_stg_sbs_tipo_cambio_date", "cols": ["date"]},
+        {"name": "idx_stg_sbs_tipo_cambio_pair", "cols": ["moneda_nocional", "moneda_contraparte"]}
+      ],
+      "ddl": "CREATE TABLE IF NOT EXISTS stg_prices_sbs_tipo_cambio (\n    moneda_nocional    TEXT NOT NULL,\n    moneda_contraparte TEXT NOT NULL,\n    fuente             TEXT NOT NULL,\n    bid_original       DOUBLE PRECISION,\n    ask_original       DOUBLE PRECISION,\n    pen_bid            DOUBLE PRECISION,\n    pen_ask            DOUBLE PRECISION,\n    var_bid            DOUBLE PRECISION,\n    var_ask            DOUBLE PRECISION,\n    date               DATE NOT NULL,\n    loaded_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    PRIMARY KEY (moneda_nocional, moneda_contraparte, fuente, date, loaded_at)\n);"
+    },
+
+    "stg_prices_sbs_dividendos": {
+      "file": "21_stg_prices_sbs_dividendos.sql",
+      "status": "settled",
+      "purpose": "Staging for SBS daily dividends file (dividendos). Dividend adjustment factors and delivery types. One row per instrument per reference_date per load.",
+      "columns": [
+        {"name": "fecha_vector", "type": "DATE", "nullable": true, "note": "reference date from file (FECHA VECTOR)"},
+        {"name": "codigo_sbs", "type": "TEXT", "nullable": false},
+        {"name": "isin", "type": "TEXT", "nullable": true},
+        {"name": "nemonico", "type": "TEXT", "nullable": true},
+        {"name": "emisor", "type": "TEXT", "nullable": true},
+        {"name": "moneda", "type": "TEXT", "nullable": true},
+        {"name": "factor_ajuste", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "tipo_entrega", "type": "TEXT", "nullable": true},
+        {"name": "date", "type": "DATE", "nullable": false},
+        {"name": "loaded_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"}
+      ],
+      "primary_key": ["codigo_sbs", "date", "loaded_at"],
+      "indexes": [
+        {"name": "idx_stg_sbs_dividendos_date", "cols": ["date"]},
+        {"name": "idx_stg_sbs_dividendos_isin", "cols": ["isin"]}
+      ],
+      "note": "Carries both fecha_vector (from file) and date (pipeline reference date).",
+      "ddl": "CREATE TABLE IF NOT EXISTS stg_prices_sbs_dividendos (\n    fecha_vector  DATE,\n    codigo_sbs    TEXT NOT NULL,\n    isin          TEXT,\n    nemonico      TEXT,\n    emisor        TEXT,\n    moneda        TEXT,\n    factor_ajuste DOUBLE PRECISION,\n    tipo_entrega  TEXT,\n    date          DATE NOT NULL,\n    loaded_at     TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    PRIMARY KEY (codigo_sbs, date, loaded_at)\n);"
+    },
+
+    "dim_portfolio": {
+      "file": "22_dim_portfolio.sql",
+      "status": "under_construction",
+      "purpose": "One row per (procode, source). A 'portfolio' is anything that holds positions: own_account (FMS-sourced accounts we manage), regulator_filing (SBS-sourced peer filings), etf (Bloomberg or scraped holdings). The same logical portfolio from two sources is two rows; parent_entity_id links ETF portfolios back to their dim_entity row so price+holdings can be joined.",
+      "columns": [
+        {"name": "portfolio_id", "type": "INTEGER GENERATED ALWAYS AS IDENTITY", "pk": true},
+        {"name": "procode", "type": "TEXT", "nullable": false},
+        {"name": "source", "type": "TEXT", "nullable": false, "note": "fms | sbs | bloomberg | scraper"},
+        {"name": "portfolio_type", "type": "TEXT", "nullable": false, "note": "own_account | regulator_filing | etf"},
+        {"name": "display_name", "type": "TEXT", "nullable": true},
+        {"name": "base_currency", "type": "TEXT", "nullable": true},
+        {"name": "parent_entity_id", "type": "INTEGER", "nullable": true, "fk": "dim_entity(entity_id)", "note": "links ETFs back to dim_entity"},
+        {"name": "status", "type": "TEXT", "nullable": false, "default": "'active'", "check": "IN ('backfill-pending','active','suspended','inactive','error_hold')"},
+        {"name": "created_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"},
+        {"name": "updated_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"}
+      ],
+      "primary_key": ["portfolio_id"],
+      "unique": [["procode", "source"]],
+      "indexes": [
+        {"name": "idx_dim_portfolio_source", "cols": ["source"]},
+        {"name": "idx_dim_portfolio_status", "cols": ["status"]},
+        {"name": "idx_dim_portfolio_parent", "cols": ["parent_entity_id"]}
+      ],
+      "differs_from_current_file": [
+        "Current file column is procode but banner comment still says '(internal_code, source)' — stale comment.",
+        "Current file uses ix_ index prefix; normalized here to idx_.",
+        "status CHECK constraint added here (current file declares status without the lifecycle CHECK)."
+      ],
+      "ddl": "CREATE TABLE IF NOT EXISTS dim_portfolio (\n    portfolio_id     INTEGER GENERATED ALWAYS AS IDENTITY PRIMARY KEY,\n    procode          TEXT NOT NULL,\n    source           TEXT NOT NULL,            -- fms | sbs | bloomberg | scraper\n    portfolio_type   TEXT NOT NULL,            -- own_account | regulator_filing | etf\n    display_name     TEXT,\n    base_currency    TEXT,\n    parent_entity_id INTEGER,                  -- links ETFs back to dim_entity\n    status           TEXT NOT NULL DEFAULT 'active'\n        CHECK (status IN ('backfill-pending','active','suspended','inactive','error_hold')),\n    created_at       TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    updated_at       TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    UNIQUE (procode, source),\n    FOREIGN KEY (parent_entity_id) REFERENCES dim_entity (entity_id)\n);\nCREATE INDEX IF NOT EXISTS idx_dim_portfolio_source ON dim_portfolio (source);\nCREATE INDEX IF NOT EXISTS idx_dim_portfolio_status ON dim_portfolio (status);\nCREATE INDEX IF NOT EXISTS idx_dim_portfolio_parent ON dim_portfolio (parent_entity_id);"
+    },
+
+    "fact_positions": {
+      "file": "23_fact_positions.sql",
+      "status": "under_construction",
+      "purpose": "Daily holdings, multi-source ready. One row per holding per portfolio per day per source; source on the PK so the same logical holding from two sources (e.g. an own account that also appears in an SBS filing) doesn't collide. Cash positions point security_entity_id at synthetic per-currency dim_entity rows (entity_type='cash'), keeping this table uniform (no separate fact_cash_positions). weight is 0..1, MV-based, computed at transform time per (portfolio_id, date). Upsert is ON CONFLICT DO UPDATE since positions get restated.",
+      "columns": [
+        {"name": "portfolio_id", "type": "INTEGER", "nullable": false, "fk": "dim_portfolio(portfolio_id)"},
+        {"name": "security_entity_id", "type": "INTEGER", "nullable": false, "fk": "dim_entity(entity_id)"},
+        {"name": "date", "type": "DATE", "nullable": false, "note": "PENDING: current file uses as_of_date; see pending_decisions"},
+        {"name": "source", "type": "TEXT", "nullable": false, "note": "fms | sbs | bloomberg | scraper"},
+        {"name": "quantity", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "market_value", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "cost_basis", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "accrued_interest", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "weight", "type": "DOUBLE PRECISION", "nullable": true, "note": "0..1, portfolio weight by MV"},
+        {"name": "price_used", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "currency", "type": "TEXT", "nullable": true},
+        {"name": "yield_to_maturity", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "duration", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "loaded_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP"}
+      ],
+      "primary_key": ["portfolio_id", "security_entity_id", "date", "source"],
+      "foreign_keys": [
+        {"cols": ["portfolio_id"], "ref": "dim_portfolio(portfolio_id)"},
+        {"cols": ["security_entity_id"], "ref": "dim_entity(entity_id)"}
+      ],
+      "indexes": [
+        {"name": "idx_fact_positions_date", "cols": ["date"]},
+        {"name": "idx_fact_positions_pf_date", "cols": ["portfolio_id", "date"]},
+        {"name": "idx_fact_positions_sec", "cols": ["security_entity_id"]},
+        {"name": "idx_fact_positions_source", "cols": ["source"]}
+      ],
+      "differs_from_current_file": [
+        "Current file uses as_of_date; proposed here as date for coherence with fact_prices + all staging. UNRESOLVED — see pending_decisions.",
+        "Current file uses NUMERIC for numeric facts; proposed DOUBLE PRECISION to match the rest of the schema. UNRESOLVED.",
+        "Current file uses ix_ index prefix; normalized to idx_.",
+        "Keep security_entity_id (NOT bare entity_id): this is a portfolio x security x date intersection with two FKs, so the role qualifier disambiguates from portfolio_id (cf. parent_entity_id). This reverses the June-10 'match fact_prices / NOT as_of_date / NOT security_id' note."
+      ],
+      "ddl": "CREATE TABLE IF NOT EXISTS fact_positions (\n    portfolio_id       INTEGER NOT NULL,\n    security_entity_id INTEGER NOT NULL,\n    date               DATE NOT NULL,\n    source             TEXT NOT NULL,          -- fms | sbs | bloomberg | scraper\n    quantity           DOUBLE PRECISION,\n    market_value       DOUBLE PRECISION,\n    cost_basis         DOUBLE PRECISION,\n    accrued_interest   DOUBLE PRECISION,\n    weight             DOUBLE PRECISION,       -- 0..1, portfolio weight by MV\n    price_used         DOUBLE PRECISION,\n    currency           TEXT,\n    yield_to_maturity  DOUBLE PRECISION,\n    duration           DOUBLE PRECISION,\n    loaded_at          TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    PRIMARY KEY (portfolio_id, security_entity_id, date, source),\n    FOREIGN KEY (portfolio_id)       REFERENCES dim_portfolio (portfolio_id),\n    FOREIGN KEY (security_entity_id) REFERENCES dim_entity (entity_id)\n);\nCREATE INDEX IF NOT EXISTS idx_fact_positions_date    ON fact_positions (date);\nCREATE INDEX IF NOT EXISTS idx_fact_positions_pf_date ON fact_positions (portfolio_id, date);\nCREATE INDEX IF NOT EXISTS idx_fact_positions_sec     ON fact_positions (security_entity_id);\nCREATE INDEX IF NOT EXISTS idx_fact_positions_source  ON fact_positions (source);"
+    },
+
+    "stg_positions_fms": {
+      "file": "24_stg_positions_fms.sql",
+      "status": "under_construction",
+      "purpose": "Raw landing for FMS sproc output. Permissive types, no FKs. Each run tags its rows with batch_id (e.g. 'fms_20260514_081532') so transform can scope to its own batch and replay/audit historical loads. raw_payload holds the full sproc row as JSON; if the sproc adds a column not yet mapped in extract.py it survives here and can be backfilled without re-hitting FMS.",
+      "columns": [
+        {"name": "batch_id", "type": "TEXT", "nullable": false, "note": "e.g. 'fms_20260514_081532'"},
+        {"name": "loaded_at", "type": "TIMESTAMPTZ", "nullable": false, "default": "CURRENT_TIMESTAMP", "note": "PENDING: current file calls this extracted_at"},
+        {"name": "date", "type": "DATE", "nullable": true},
+        {"name": "account_code", "type": "TEXT", "nullable": true, "note": "FMS internal account id"},
+        {"name": "instrument_id", "type": "TEXT", "nullable": true, "note": "FMS internal instrument id"},
+        {"name": "isin", "type": "TEXT", "nullable": true},
+        {"name": "ticker", "type": "TEXT", "nullable": true},
+        {"name": "description", "type": "TEXT", "nullable": true},
+        {"name": "quantity", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "market_value", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "cost_basis", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "accrued_interest", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "currency", "type": "TEXT", "nullable": true},
+        {"name": "price_used", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "yield_to_maturity", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "duration", "type": "DOUBLE PRECISION", "nullable": true},
+        {"name": "raw_payload", "type": "JSONB", "nullable": true, "note": "JSON of the full sproc row, for audit. PENDING: current file uses TEXT"}
+      ],
+      "primary_key": null,
+      "indexes": [
+        {"name": "idx_stg_positions_fms_batch", "cols": ["batch_id"]},
+        {"name": "idx_stg_positions_fms_date", "cols": ["date"]}
+      ],
+      "differs_from_current_file": [
+        "Current file calls the load timestamp extracted_at; proposed loaded_at for staging coherence (batch_id already carries the extraction time).",
+        "Current file uses NUMERIC; proposed DOUBLE PRECISION.",
+        "Current file uses raw_payload TEXT; proposed JSONB (more idiomatic/queryable in PG).",
+        "Current file uses ix_ prefix; normalized to idx_.",
+        "FMS id_type for instrument codes is 'fms_instrument_id' (registered in dim_entity_identifiers)."
+      ],
+      "ddl": "CREATE TABLE IF NOT EXISTS stg_positions_fms (\n    batch_id          TEXT NOT NULL,           -- e.g. 'fms_20260514_081532'\n    loaded_at         TIMESTAMPTZ NOT NULL DEFAULT CURRENT_TIMESTAMP,\n    date              DATE,\n    account_code      TEXT,                    -- FMS internal account id\n    instrument_id     TEXT,                    -- FMS internal instrument id\n    isin              TEXT,\n    ticker            TEXT,\n    description       TEXT,\n    quantity          DOUBLE PRECISION,\n    market_value      DOUBLE PRECISION,\n    cost_basis        DOUBLE PRECISION,\n    accrued_interest  DOUBLE PRECISION,\n    currency          TEXT,\n    price_used        DOUBLE PRECISION,\n    yield_to_maturity DOUBLE PRECISION,\n    duration          DOUBLE PRECISION,\n    raw_payload       JSONB                    -- full sproc row, for audit\n);\nCREATE INDEX IF NOT EXISTS idx_stg_positions_fms_batch ON stg_positions_fms (batch_id);\nCREATE INDEX IF NOT EXISTS idx_stg_positions_fms_date  ON stg_positions_fms (date);"
+    }
+  },
+
+  "relationships": [
+    {"from": "dim_security.entity_id", "to": "dim_entity.entity_id", "type": "1:1", "note": "UNIQUE FK; a security is one entity"},
+    {"from": "dim_security_equity.security_id", "to": "dim_security.security_id", "type": "1:1", "note": "extension table"},
+    {"from": "dim_security_fund.security_id", "to": "dim_security.security_id", "type": "1:1", "note": "extension table"},
+    {"from": "dim_security_bond.security_id", "to": "dim_security.security_id", "type": "1:1", "note": "extension table (DDL not captured)"},
+    {"from": "dim_entity_identifiers.entity_id", "to": "dim_entity.entity_id", "type": "N:1"},
+    {"from": "series_registry.entity_id", "to": "dim_entity.entity_id", "type": "N:1", "note": "UNIQUE (entity_id, field, source)"},
+    {"from": "fact_prices.series_id", "to": "series_registry.series_id", "type": "N:1"},
+    {"from": "dim_portfolio.parent_entity_id", "to": "dim_entity.entity_id", "type": "N:1", "note": "nullable; links ETF portfolios to their entity"},
+    {"from": "fact_positions.portfolio_id", "to": "dim_portfolio.portfolio_id", "type": "N:1"},
+    {"from": "fact_positions.security_entity_id", "to": "dim_entity.entity_id", "type": "N:1"},
+    {"note": "All stg_* (Bloomberg, SBS, FMS) tables are FK-free permissive landing zones; resolution/transform steps join them to dims by vendor identifier via dim_entity_identifiers."}
+  ],
+
+  "pipeline_flow": {
+    "prices": "vendor extract.py -> stg_prices_* -> fact loader resolves entity via dim_entity_identifiers + series via series_registry -> fact_prices (upsert DO NOTHING).",
+    "securities": "bloomberg security extract.py -> stg_security_bloomberg -> resolution -> dim_security + dim_entity_identifiers.",
+    "positions": "FMS sproc -> stg_positions_fms (batch-tagged) -> transform resolves entity + portfolio -> fact_positions (upsert DO UPDATE). SBS filings and Bloomberg/scraped ETF holdings are the other two position sources.",
+    "sources_of_positions": ["fms (own_account, ~12 managed accounts)", "sbs (regulator_filing, peer institutions)", "bloomberg/scraper (etf, ~15 ETFs)"]
+  },
+
+  "known_inconsistencies": [
+    {"id": "lifecycle_delimiter", "where": "series_registry vs dim_portfolio", "issue": "'error_hold' (underscore) in series_registry CHECK vs 'error-hold' (hyphen) in dim_portfolio banner; 'backfill-pending' uses a hyphen. Standardize the literal set and reuse verbatim."},
+    {"id": "cash_entity_type", "where": "dim_entity CHECK vs fact_positions", "issue": "fact_positions expects synthetic cash entities with entity_type='cash', but dim_entity CHECK only allows ('security','macro','index','fund'). Add 'cash' to the CHECK or change the cash-handling approach."},
+    {"id": "fact_prices_comment_typo", "where": "fact_prices banner", "issue": "Says 'upsert on (series_id, reference_data)'; real PK is (series_id, date)."},
+    {"id": "dim_portfolio_comment_stale", "where": "dim_portfolio banner", "issue": "Says 'one row per (internal_code, source)' but column/constraint is procode. (schema_old had the real bug UNIQUE(internal_code,...) against a procode column; the PG version fixed the constraint, comment lagged.)"},
+    {"id": "rf_exterior_no_nemonico", "where": "stg_prices_sbs_rf_exterior", "issue": "Missing nemonico, present in all sibling SBS staging tables. Confirm intent."},
+    {"id": "index_prefix_split", "where": "positions domain (22/23/24)", "issue": "Uses ix_ while the rest of the schema uses idx_. Normalize to idx_."},
+    {"id": "numeric_vs_double", "where": "positions domain (22/23/24)", "issue": "Uses NUMERIC while fact_prices and SBS monetary fields use DOUBLE PRECISION. Decide one policy schema-wide."}
+  ],
+
+  "open_decisions": [
+    {"id": "fact_positions_date_name", "question": "fact_positions date column: 'date' (coherence with fact_prices + staging, 1:1 stg->fact map) vs 'as_of_date' (self-documenting snapshot semantics).", "default_recommendation": "date"},
+    {"id": "numeric_type_policy", "question": "NUMERIC vs DOUBLE PRECISION for monetary/position facts across positions domain.", "default_recommendation": "DOUBLE PRECISION to match existing schema; switch to NUMERIC only if cent-exact reconciliation is required (and then revisit SBS _monto fields too)."},
+    {"id": "raw_payload_type", "question": "stg_positions_fms.raw_payload TEXT vs JSONB.", "default_recommendation": "JSONB"},
+    {"id": "fms_staging_pk", "question": "Add composite PK (batch_id, account_code, instrument_id, date) to stg_positions_fms for within-batch dedup, mirroring SBS staging PKs?", "default_recommendation": "Optional; leave PK-less if intra-batch duplicates are acceptable for the permissive landing zone."},
+    {"id": "portfolio_type_check", "question": "Add CHECK on dim_portfolio.portfolio_type (closed set own_account|regulator_filing|etf)?", "default_recommendation": "Optional; source stays free-TEXT to match the rest of the schema."}
+  ],
+
+  "not_captured": {
+    "schema_file_number_gaps": "Source screenshots did not show files 05, 06, 07, 08, 11, 12, 15 in schema/. Confirm what occupies them.",
+    "referenced_but_unseen_tables": ["dim_security_bond (file 05, referenced by SBS rf staging)", "likely fact_fundamentals / fact_macro (series_registry.domain allows 'fundamentals' and 'macro', implying parallel fact tables not shown)"],
+    "action": "Capture these from the live files and append to this context before relying on it as complete."
+  }
+}

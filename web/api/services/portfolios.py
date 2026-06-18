@@ -1,6 +1,8 @@
 # web/api/services/portfolios.py
 # ---------------------------------------------------------------------------
 # Portfolios service : portfolio list + available position dates.
+# dim_portfolio uses `procode` (the house internal-code name); fact_positions
+# uses a `date` column.
 # ---------------------------------------------------------------------------
 from __future__ import annotations
 
@@ -16,7 +18,7 @@ def list_portfolios() -> list[dict]:
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(
-            """SELECT portfolio_id, internal_code, source, portfolio_type,
+            """SELECT portfolio_id, procode, source, portfolio_type,
                       display_name, base_currency, status
                FROM dim_portfolio
                ORDER BY display_name"""
@@ -25,14 +27,14 @@ def list_portfolios() -> list[dict]:
 
 
 def get_position_dates(portfolio_id: int) -> list[str]:
-    """Distinct snapshot dates that have positions, most recent first."""
+    """Distinct snapshot dates that have positions, most recent first (ISO strings)."""
     with get_connection() as conn:
         cur = conn.cursor()
         cur.execute(
-            """SELECT DISTINCT reference_date
+            """SELECT DISTINCT date
                FROM fact_positions
                WHERE portfolio_id = %s
-               ORDER BY reference_date DESC""",
+               ORDER BY date DESC""",
             (portfolio_id,),
         )
-        return [row["reference_date"] for row in cur.fetchall()]
+        return [row["date"].isoformat() for row in cur.fetchall()]

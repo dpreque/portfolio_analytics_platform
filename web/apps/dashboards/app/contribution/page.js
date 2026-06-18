@@ -83,7 +83,7 @@ export default function ContributionPage() {
     display_name: 'Portfolio',
     contribution: <span className={`num ${ret >= 0 ? 'pos' : 'neg'}`}>{bps(ret)}</span>,
   };
-  const exportName = `${data?.portfolio?.internal_code || 'portfolio'}_contribution_${range.from}_${range.to}`;
+  const exportName = `${data?.portfolio?.procode || 'portfolio'}_contribution_${range.from}_${range.to}`;
 
   return (
     <div>

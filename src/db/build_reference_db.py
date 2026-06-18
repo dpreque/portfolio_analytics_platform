@@ -25,10 +25,17 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(messag
 logger = logging.getLogger(__name__)
 
 _SCHEMA_DIR = Path(__file__).resolve().parent / "schema"
-# Drop order: facts first, then dimensions (CASCADE also clears FKs either way).
+# Drop order: facts/children first, then dimensions (CASCADE also clears FKs).
 _DROP_ORDER = [
-    "fact_prices", "fact_contribution", "fact_positions",
-    "dim_entity_identifiers", "dim_portfolio", "dim_entity",
+    "fact_positions", "fact_prices", "series_registry",
+    "dim_entity_identifiers", "dim_portfolio",
+    "dim_security_equity", "dim_security_fund", "dim_security_bond",
+    "dim_security", "dim_entity",
+    # staging landing zones (FK-free)
+    "stg_security_bloomberg", "stg_prices_bloomberg",
+    "stg_prices_sbs_vector_completo", "stg_prices_sbs_rf_local",
+    "stg_prices_sbs_rf_exterior", "stg_prices_sbs_tipo_cambio",
+    "stg_prices_sbs_dividendos", "stg_positions_fms",
 ]
 
 
