@@ -17,6 +17,7 @@ import { apiGet, pct, num } from '../../lib/api';
 import { useDashboard } from '../../components/DashboardProvider';
 import KpiBar from '../../components/KpiBar';
 import DataTable from '../../components/DataTable';
+import SecuritySearch from '../../components/SecuritySearch';
 import { chartTheme } from '../../lib/theme';
 
 const PlotlyChart = dynamic(() => import('../../components/PlotlyChart'), { ssr: false });
@@ -38,18 +39,12 @@ const SPIKE = {
 
 export default function PricesPage() {
   const { range } = useDashboard();
-  const [securities, setSecurities] = useState([]);
+  const [selected, setSelected] = useState(null);
   const [entityId, setEntityId] = useState('');
   const [data, setData] = useState(null);
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(false);
   const [hoverDate, setHoverDate] = useState(null);
-
-  useEffect(() => {
-    apiGet('/api/securities?limit=500')
-      .then((rows) => { setSecurities(rows); if (rows.length) setEntityId(String(rows[0].entity_id)); })
-      .catch((e) => setError(e.message));
-  }, []);
 
   useEffect(() => {
     if (!entityId) return;
@@ -138,11 +133,10 @@ export default function PricesPage() {
         <div className="controls">
           <div className="field">
             <label>Security</label>
-            <select className="select" value={entityId} onChange={(e) => setEntityId(e.target.value)} style={{ minWidth: 280 }}>
-              {securities.map((s) => (
-                <option key={s.entity_id} value={s.entity_id}>{s.display_name}{s.ticker ? ` (${s.ticker})` : ''}</option>
-              ))}
-            </select>
+            <SecuritySearch
+              value={selected}
+              onSelect={(s) => { setSelected(s); setEntityId(String(s.entity_id)); }}
+            />
           </div>
         </div>
       </div>

@@ -241,6 +241,21 @@ tfoot th, tfoot td {
 .col-chooser .row { display: flex; align-items: center; gap: 8px; padding: 5px 4px; font-size: 12px; color: var(--text-primary); }
 .col-chooser .row input { accent-color: var(--blue); }
 
+/* security typeahead combobox */
+.combo { position: relative; }
+.combo-results {
+  position: absolute; top: calc(100% + 4px); left: 0; z-index: 25;
+  background: var(--s2); border: 1px solid var(--s4); border-radius: 8px;
+  min-width: 300px; max-height: 320px; overflow-y: auto;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
+}
+.combo-item {
+  display: flex; justify-content: space-between; gap: 12px; align-items: center;
+  padding: 8px 12px; cursor: pointer; font-size: 13px; color: var(--text-primary);
+}
+.combo-item:hover, .combo-item.active { background: var(--s3); }
+.combo-meta { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
+
 /* ----- States --------------------------------------------------------------- */
 .error { color: var(--rose); font-weight: 600; }
 .loading { color: var(--text-secondary); padding: 20px 0; }
