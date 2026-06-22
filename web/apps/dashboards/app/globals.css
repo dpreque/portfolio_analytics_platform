@@ -270,16 +270,169 @@ tfoot th, tfoot td {
 .combo-hl { color: var(--blue); }
 .combo-empty { padding: 10px 12px; color: var(--text-muted); font-size: 12px; }
 
+/* price chart control row (legend + zoom buttons), below the chart */
+.chart-controls { display: flex; justify-content: space-between; align-items: center; margin-top: 10px; }
+.chart-legend { display: flex; align-items: center; gap: 16px; }
+.legend-item {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: transparent; border: 0; cursor: pointer;
+  color: var(--text-secondary); font-size: 12px; padding: 2px 2px;
+}
+.legend-item:hover { color: var(--text-primary); }
+.legend-item.off { opacity: 0.4; }
+.legend-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; flex: none; }
+.chart-zoom { display: flex; align-items: center; gap: 6px; }
+/* Measure toggle: active = filled blue (matches the period selector's active state) */
+.btn.active { background: var(--blue); border-color: var(--blue); color: #FFFFFF; }
+.btn.active:hover { color: #FFFFFF; }
+
+/* drag-to-select measurement summary panel (between the chart and the comparison table) */
+.measure-panel {
+  background: var(--s0); border: 1px solid var(--s4); border-radius: 6px;
+  padding: 14px 18px; margin-bottom: 18px;
+  font-family: var(--font-mono); font-size: 12px; color: var(--text-primary);
+}
+[data-theme="light"] .measure-panel { background: #FFFFFF; }
+.measure-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
+.measure-head-text { display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap; }
+.measure-title { color: var(--text-muted); letter-spacing: 0.08em; }
+.measure-range { color: var(--text-primary); }
+.measure-close {
+  appearance: none; background: transparent; border: 0; cursor: pointer;
+  color: var(--text-secondary); font-size: 18px; line-height: 1; padding: 0 2px;
+}
+.measure-close:hover { color: var(--text-primary); }
+.measure-days { color: var(--text-secondary); margin: 4px 0 12px; }
+.measure-div { height: 1px; background: var(--s4); margin: 8px 0; }
+.measure-rows { display: flex; flex-direction: column; }
+.measure-row { display: flex; gap: 20px; line-height: 1.8; }
+.measure-label { color: var(--text-muted); min-width: 160px; }
+.measure-val { color: var(--text-primary); }
+.measure-val.pos { color: var(--teal); }
+.measure-val.neg { color: var(--rose); }
+
+/* custom HTML hover tooltip for the price chart (terminal style, full CSS control) */
+.px-chart-wrap { position: relative; }
+/* "LOCKED" pin indicator, top-right inside the plot area (margins t:30 / r:20) */
+.px-lock {
+  position: absolute; top: 34px; right: 26px; z-index: 31; pointer-events: none;
+  font-family: var(--font-mono); font-size: 9px; letter-spacing: 0.08em; color: var(--amber);
+}
+/* right-click context menu (rendered via portal on document.body; --s1 = #FFFFFF in light) */
+.px-ctx {
+  position: fixed; z-index: 1000; min-width: 168px;
+  background: var(--s1); border: 1px solid var(--s4); border-radius: 5px;
+  padding: 4px 0; font-family: var(--font-sans); font-size: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.px-ctx-item {
+  display: block; width: 100%; text-align: left; appearance: none;
+  background: none; border: 0; cursor: pointer;
+  padding: 7px 16px; color: var(--text-primary);
+  font-family: inherit; font-size: inherit;
+}
+.px-ctx-item:hover { background: var(--s3); }
+.px-ctx-div { height: 1px; background: var(--s4); margin: 4px 0; }
+/* floating hover overlay: the data card + the stats ribbon, stacked with a 4px gap */
+.px-hover { position: absolute; z-index: 50; pointer-events: none; display: flex; flex-direction: column; gap: 4px; }
+.px-tip {
+  background: #0D0F14; border: 1px solid #2E3348; border-radius: 0;
+  padding: 10px 14px; font-family: var(--font-mono); min-width: 184px;
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
+}
+.px-tip-warn { color: var(--amber); font-size: 10px; letter-spacing: 0.02em; margin-bottom: 4px; }
+.px-tip-row { display: flex; justify-content: space-between; gap: 22px; line-height: 1.55; }
+.px-tip-date { color: #E8EAF0; font-weight: 600; font-size: 11px; letter-spacing: 0.02em; }
+.px-tip-head { font-size: 10px; font-weight: 600; letter-spacing: 0.06em; margin-bottom: 2px; }
+.px-tip-label { color: #4A5568; font-size: 10px; letter-spacing: 0.04em; }
+.px-tip-val { color: #E8EAF0; font-size: 11px; font-variant-numeric: tabular-nums; }
+.px-tip-val.pos { color: #2DD4A0; }
+.px-tip-val.neg { color: #F06580; }
+.px-tip-div { border-top: 1px solid #2E3348; margin: 6px 0; }
+/* light-mode tooltip (the per-source header colors + teal/rose stay the same) */
+[data-theme="light"] .px-tip { background: #FFFFFF; border-color: #D1D5DB; box-shadow: 0 6px 22px rgba(0, 0, 0, 0.15); }
+[data-theme="light"] .px-tip-date { color: #111827; }
+[data-theme="light"] .px-tip-val { color: #111827; }
+[data-theme="light"] .px-tip-div { border-top-color: #D1D5DB; }
+
+/* stats ribbon below the data card (same skin as the card) */
+.px-ribbon {
+  background: #0D0F14; border: 1px solid #2E3348; border-radius: 0;
+  padding: 6px 14px; font-family: var(--font-mono);
+  display: flex; gap: 18px; box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5);
+}
+[data-theme="light"] .px-ribbon { background: #FFFFFF; border-color: #D1D5DB; box-shadow: 0 6px 22px rgba(0, 0, 0, 0.15); }
+.px-ribbon-item { display: flex; flex-direction: column; gap: 2px; }
+.px-ribbon-label { color: #4A5568; font-size: 9px; letter-spacing: 0.04em; }
+.px-ribbon-val { font-size: 10px; font-variant-numeric: tabular-nums; color: #E8EAF0; }
+[data-theme="light"] .px-ribbon-val { color: #111827; }
+.px-ribbon-val.pos { color: #2DD4A0; }
+.px-ribbon-val.neg { color: #F06580; }
+
+/* right-click "Add annotation" inline text prompt, near the clicked point */
+/* note popover (add / edit), rendered via portal on document.body (--s1 = #FFFFFF in light) */
+.px-pop {
+  position: fixed; z-index: 200;
+  background: var(--s1); border: 1px solid var(--s4); border-radius: 5px;
+  padding: 12px 14px; font-family: var(--font-sans); font-size: 12px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+}
+.px-pop-title { color: var(--text-secondary); font-size: 11px; text-transform: uppercase; letter-spacing: 0.5px; }
+.px-pop-div { height: 1px; background: var(--s4); margin: 8px 0; }
+.px-pop-input {
+  width: 100%; box-sizing: border-box;
+  background: var(--s2); border: 1px solid var(--s4); border-radius: 4px;
+  color: var(--text-primary); font-family: var(--font-mono); font-size: 11px; padding: 6px 8px; outline: none;
+}
+.px-pop-meta { color: var(--text-muted); font-family: var(--font-mono); font-size: 10px; margin-top: 8px; }
+.px-pop-label { color: var(--text-muted); font-size: 10px; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+/* native date inputs adopt the active theme's calendar/spinner chrome */
+.px-date { color-scheme: dark; }
+[data-theme="light"] .px-date { color-scheme: light; }
+.px-pop-actions { display: flex; align-items: center; gap: 8px; margin-top: 10px; }
+.px-pop-spacer { flex: 1; }
+.px-pop-del {
+  color: var(--rose); border: 1px solid var(--rose); background: transparent;
+  border-radius: 4px; padding: 4px 10px; font-family: var(--font-sans); font-size: 12px; cursor: pointer;
+}
+.px-pop-del:hover { background: rgba(240, 101, 128, 0.1); }
+
+/* notes-list panel rows */
+.notes-row { display: flex; align-items: center; gap: 12px; line-height: 1.9; }
+.notes-date { font-family: var(--font-mono); color: var(--text-muted); font-size: 11px; white-space: nowrap; }
+.notes-text { flex: 1; color: var(--text-primary); font-family: var(--font-sans); font-size: 12px; cursor: pointer; }
+.notes-text:hover { color: var(--blue); }
+.notes-act { background: none; border: 0; cursor: pointer; color: var(--text-secondary); font-size: 13px; padding: 0 2px; }
+.notes-act:hover { color: var(--text-primary); }
+.notes-empty { color: var(--text-muted); text-align: center; padding: 8px 0; font-family: var(--font-sans); font-size: 12px; }
+/* inline "add note" form inside the Notes panel */
+.notes-add-btn {
+  width: 100%; text-align: left; cursor: pointer;
+  color: var(--blue); border: 1px solid var(--blue); background: transparent;
+  border-radius: 4px; padding: 5px 12px; font-family: var(--font-sans); font-size: 12px;
+}
+.notes-add-btn:hover { background: rgba(91, 140, 255, 0.08); }
+.notes-form { display: flex; flex-direction: column; }
+.notes-err { color: var(--rose); font-size: 10px; margin-top: 3px; }
+.notes-warn { color: var(--amber); font-size: 10px; margin-top: 3px; }
+
 /* source comparison table (bespoke, grouped two-row header) */
 .cmp-wrap { overflow: auto; max-height: 62vh; border: 1px solid var(--s4); border-radius: 10px; }
 .cmp-table { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; font-size: 13px; }
 .cmp-table th {
-  position: static; cursor: default; font-weight: 600;
+  /* sticky header: both grouped rows stay pinned while the body scrolls */
+  position: sticky; top: 0; z-index: 2; cursor: default; font-weight: 600;
   font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-secondary);
 }
 .cmp-table thead .cmp-grp th { background: var(--s3); text-align: center; }   /* group row: darker */
-.cmp-table thead .cmp-col th { background: var(--s2); text-align: right; }    /* column row: lighter */
+/* column row sits directly below the ~32px group row; solid bg + separator from the data rows */
+.cmp-table thead .cmp-col th { background: var(--s2); text-align: right; top: 32px; border-bottom: 2px solid var(--s4); }
+/* the rowSpan=2 Date cell spans both header rows -> carry the same bottom separator */
+.cmp-table thead .cmp-grp th.cmp-date { border-bottom: 2px solid var(--s4); }
 .cmp-table .cmp-date { text-align: left !important; }
+.cmp-sortable { cursor: pointer; user-select: none; }
+.cmp-sort-ind { margin-left: 4px; color: var(--text-muted); }
+.cmp-sort-ind.on { color: var(--text-primary); }
 .cmp-table tbody tr:hover { background: var(--s3); }
 /* vertical dividers separating Bloomberg | SBS | Comparison groups */
 .cmp-div { border-left: 1px solid var(--s4); }
