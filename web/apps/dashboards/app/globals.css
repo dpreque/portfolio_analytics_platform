@@ -230,7 +230,6 @@ tfoot th, tfoot td {
   background: var(--s3); color: var(--text-secondary); font-size: 10px; font-weight: 600;
   text-transform: uppercase; letter-spacing: 0.4px;
 }
-.flag-warn { color: var(--amber); }
 
 /* column chooser popover */
 .col-chooser {
@@ -242,19 +241,51 @@ tfoot th, tfoot td {
 .col-chooser .row input { accent-color: var(--blue); }
 
 /* security typeahead combobox */
-.combo { position: relative; }
+.combo-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); font-weight: 600; }
+.combo { position: relative; min-width: 320px; }
+.combo-field {
+  width: 100%; background: var(--s2); color: var(--text-primary);
+  border: 1px solid var(--s4); border-radius: 7px; padding: 7px 30px 7px 10px;
+  font-family: var(--font-sans); font-size: 13px;
+}
+.combo-field:focus { outline: none; border-color: var(--blue); }
+.combo-clear {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  width: 20px; height: 20px; line-height: 18px; text-align: center;
+  border: 0; background: transparent; color: var(--text-secondary);
+  font-size: 16px; cursor: pointer; border-radius: 4px;
+}
+.combo-clear:hover { color: var(--text-primary); background: var(--s3); }
+.combo-hint { font-size: 10px; font-family: var(--font-mono); color: var(--text-muted); }
 .combo-results {
   position: absolute; top: calc(100% + 4px); left: 0; z-index: 25;
   background: var(--s2); border: 1px solid var(--s4); border-radius: 8px;
-  min-width: 300px; max-height: 320px; overflow-y: auto;
+  min-width: 320px; max-height: 320px; overflow-y: auto;
   box-shadow: 0 10px 30px rgba(0, 0, 0, 0.45);
 }
-.combo-item {
-  display: flex; justify-content: space-between; gap: 12px; align-items: center;
-  padding: 8px 12px; cursor: pointer; font-size: 13px; color: var(--text-primary);
-}
+.combo-item { display: block; padding: 8px 12px; cursor: pointer; }
 .combo-item:hover, .combo-item.active { background: var(--s3); }
-.combo-meta { font-family: var(--font-mono); font-size: 11px; color: var(--text-secondary); }
+.combo-line1 { color: var(--text-primary); font-size: 13px; }
+.combo-isin { color: var(--text-muted); font-family: var(--font-mono); font-size: 10px; margin-top: 2px; }
+.combo-hl { color: var(--blue); }
+.combo-empty { padding: 10px 12px; color: var(--text-muted); font-size: 12px; }
+
+/* source comparison table (bespoke, grouped two-row header) */
+.cmp-wrap { overflow: auto; max-height: 62vh; border: 1px solid var(--s4); border-radius: 10px; }
+.cmp-table { width: 100%; table-layout: fixed; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.cmp-table th {
+  position: static; cursor: default; font-weight: 600;
+  font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text-secondary);
+}
+.cmp-table thead .cmp-grp th { background: var(--s3); text-align: center; }   /* group row: darker */
+.cmp-table thead .cmp-col th { background: var(--s2); text-align: right; }    /* column row: lighter */
+.cmp-table .cmp-date { text-align: left !important; }
+.cmp-table tbody tr:hover { background: var(--s3); }
+/* vertical dividers separating Bloomberg | SBS | Comparison groups */
+.cmp-div { border-left: 1px solid var(--s4); }
+/* stronger highlight when |return difference| exceeds the threshold */
+.cmp-hot { background: rgba(245, 166, 35, 0.16); }
+.cmp-table tbody tr:hover .cmp-hot { background: rgba(245, 166, 35, 0.24); }
 
 /* ----- States --------------------------------------------------------------- */
 .error { color: var(--rose); font-weight: 600; }

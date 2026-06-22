@@ -40,7 +40,7 @@ function mergeAxis(themeAxis, page) {
   return { ...themeAxis, ...(page || {}), tickfont: { ...themeAxis.tickfont, ...(page?.tickfont || {}) } };
 }
 
-export default function PlotlyChart({ data, layout = {}, style, onHover, onUnhover }) {
+export default function PlotlyChart({ data, layout = {}, style, onHover, onUnhover, onLegendClick, onLegendDoubleClick }) {
   useThemeVersion(); // re-render when the theme toggles so tokens are re-read
   const t = chartTheme();
   const themeAxis = {
@@ -63,6 +63,8 @@ export default function PlotlyChart({ data, layout = {}, style, onHover, onUnhov
       useResizeHandler
       onHover={onHover}
       onUnhover={onUnhover}
+      onLegendClick={onLegendClick}
+      onLegendDoubleClick={onLegendDoubleClick}
     />
   );
 }
