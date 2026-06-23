@@ -131,20 +131,14 @@ export default function PricesPage() {
   const [annotations, setAnnotations] = useState([]); // chart notes: [{ id, date, price, text, createdAt }]
   const [popover, setPopover] = useState(null); // add/edit note popover descriptor
   const [popoverText, setPopoverText] = useState(''); // controlled note input value
-  const [popoverDate, setPopoverDate] = useState(''); // edit-popover date field (YYYY-MM-DD)
-  const [notesOpen, setNotesOpen] = useState(false); // notes-list panel toggle
-  const [addForm, setAddForm] = useState(false); // inline "add note" form inside the Notes panel
-  const [addDate, setAddDate] = useState('');
-  const [addNote, setAddNote] = useState('');
-  const [addErr, setAddErr] = useState({}); // { date?: bool, note?: bool } -> "Required" hints
-  const [scrollNotes, setScrollNotes] = useState(0); // bump to scroll the list to the newest note
+  const [popoverDate, setPopoverDate] = useState(''); // popover date field (YYYY-MM-DD)
+  const [popoverErr, setPopoverErr] = useState({}); // { date?: bool, note?: bool } -> "Required" hints
   const chartWrapRef = useRef(null);
   const gdRef = useRef(null); // Plotly graph div (captured on init)
   const tooltipLockedRef = useRef(false); // hover-lock source of truth (read synchronously by handlers)
   const ctxMenuRef = useRef(null); // menu DOM node, for outside-click dismissal
   const annotationsRef = useRef([]); // mirror of `annotations` for synchronous reads in event handlers
   const popRef = useRef(null); // popover DOM node, for outside-click dismissal
-  const notesListRef = useRef(null); // notes-list container, for scroll-to-new
   const annoObserverRef = useRef(null); // MutationObserver giving annotation text a pointer cursor
   useThemeVersion(); // re-render on theme toggle so themed colors re-read
 
@@ -175,10 +169,6 @@ export default function PricesPage() {
       if (Array.isArray(saved)) { annotationsRef.current = saved; setAnnotations(saved); }
     } catch { /* ignore */ }
   }, []);
-  // after adding a note, scroll the list to reveal the newest entry
-  useEffect(() => {
-    if (scrollNotes && notesListRef.current) notesListRef.current.lastElementChild?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-  }, [scrollNotes]);
   // disconnect the annotation-cursor observer on unmount
   useEffect(() => () => { try { annoObserverRef.current?.disconnect(); } catch { /* ignore */ } }, []);
 
@@ -459,21 +449,26 @@ export default function PricesPage() {
     return { price: best.price, outOfRange };
   };
   const openAddPopover = (clientX, clientY, date, price) => {
-    const { left, top } = placePopover(clientX, clientY, 220);
-    setPopover({ mode: 'add', date, price, left, top, width: 220 });
-    setPopoverText(''); setPopoverDate(date);
+    const { left, top } = placePopover(clientX, clientY, 248);
+    setPopover({ mode: 'add', date, price, left, top, width: 248 });
+    setPopoverText(''); setPopoverDate(date || todayIso()); setPopoverErr({});
   };
   const openEditPopover = (clientX, clientY, anno) => {
     const { left, top } = placePopover(clientX, clientY, 248);
     setPopover({ mode: 'edit', id: anno.id, createdAt: anno.createdAt, left, top, width: 248 });
-    setPopoverText(anno.text); setPopoverDate(anno.date);
+    setPopoverText(anno.text); setPopoverDate(anno.date); setPopoverErr({});
   };
-  const closePopover = () => { setPopover(null); setPopoverText(''); setPopoverDate(''); };
+  const closePopover = () => { setPopover(null); setPopoverText(''); setPopoverDate(''); setPopoverErr({}); };
   const savePopover = () => {
     const text = popoverText.trim();
-    if (!text) return; // empty -> keep the popover open
+    const errs = {};
+    if (!popoverDate) errs.date = true;
+    if (!text) errs.note = true;
+    if (errs.date || errs.note) { setPopoverErr(errs); return; } // show "Required", keep open
     if (popover.mode === 'add') {
-      const a = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, date: popover.date, price: popover.price, text, createdAt: new Date().toISOString() };
+      // use the date from the date input (not the right-clicked x); resolve the price at that date
+      const { price } = resolvePriceAtDate(popoverDate);
+      const a = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, date: popoverDate, price: price ?? 0, text, createdAt: new Date().toISOString() };
       writeAnnotations([...annotationsRef.current, a]);
     } else {
       writeAnnotations(annotationsRef.current.map((x) => {
@@ -490,24 +485,6 @@ export default function PricesPage() {
     closePopover();
   };
   const deleteAnnotation = (id) => { writeAnnotations(annotationsRef.current.filter((x) => x.id !== id)); };
-
-  // --- inline "add note" form (Notes panel) --------------------------------
-  const closeAddForm = () => { setAddForm(false); setAddNote(''); setAddErr({}); };
-  const openAddForm = () => {
-    if (addForm) { closeAddForm(); return; } // only one form open; toggle closes it
-    setAddDate(todayIso()); setAddNote(''); setAddErr({}); setAddForm(true);
-  };
-  const saveAddForm = () => {
-    const err = {};
-    if (!addDate) err.date = true;
-    if (!addNote.trim()) err.note = true;
-    if (err.date || err.note) { setAddErr(err); return; } // keep open, show "Required"
-    const { price } = resolvePriceAtDate(addDate);
-    const a = { id: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`, date: addDate, price: price ?? 0, text: addNote.trim(), createdAt: new Date().toISOString() };
-    writeAnnotations([...annotationsRef.current, a]);
-    closeAddForm();
-    setScrollNotes((n) => n + 1);
-  };
 
   // give annotation text a pointer cursor (Plotly has no native cursor option); the observer
   // below re-applies it after every chart re-render that rebuilds annotations.
@@ -635,7 +612,8 @@ export default function PricesPage() {
   const analyseShapes = [];
   if (pointA) analyseShapes.push({ type: 'line', xref: 'x', yref: 'paper', x0: pointA.date, x1: pointA.date, y0: 0, y1: 1, line: { color: '#5B8CFF', width: 1, dash: 'dot' } });
   if (pointB) analyseShapes.push({ type: 'line', xref: 'x', yref: 'paper', x0: pointB.date, x1: pointB.date, y0: 0, y1: 1, line: { color: '#5B8CFF', width: 1, dash: 'dot' } });
-  const shapes = [...divergence.shapes, ...analyseShapes];
+  // divergence bands removed from the chart; only the Analyse A/B markers remain as shapes
+  const shapes = [...analyseShapes];
 
   // Mode priority: Analyse active -> dragmode false (click-only point selection);
   // otherwise drag-to-zoom is the default. Driven declaratively through the controlled
@@ -834,9 +812,6 @@ export default function PricesPage() {
                 <button type="button" className={`btn ${analysing ? 'active' : ''}`} onClick={onAnalyseClick} title="Analyse the change between two points">
                   {analysing ? 'Analysing — click two points' : 'Analyse'}
                 </button>
-                <button type="button" className="btn" onClick={() => setNotesOpen((v) => !v)} title="Show notes">
-                  {annotations.length ? <>Notes (<span style={{ color: 'var(--blue)' }}>{annotations.length}</span>)</> : 'Notes'}
-                </button>
                 <button type="button" className="btn" onClick={() => zoom(1 / 0.6)} title="Zoom out">−</button>
                 <button type="button" className="btn" onClick={resetZoom} title="Reset zoom">Reset</button>
                 <button type="button" className="btn" onClick={() => zoom(0.6)} title="Zoom in">+</button>
@@ -847,69 +822,6 @@ export default function PricesPage() {
           <div className="muted">No price data for this selection.</div>
         )}
       </div>
-
-      {notesOpen && (
-        <div className="measure-panel">
-          <div className="measure-head">
-            <div className="measure-head-text">
-              <span className="measure-title">NOTES</span>
-              <span className="measure-range">({annotations.length})</span>
-            </div>
-            <button type="button" className="btn" onClick={() => setNotesOpen(false)}>Close</button>
-          </div>
-          <div className="measure-div" />
-          <button type="button" className="notes-add-btn" onClick={openAddForm}>+ Add note</button>
-          <div className="measure-div" />
-          {addForm && (
-            <>
-              <div className="notes-form">
-                <div className="px-pop-label">Date</div>
-                <input
-                  type="date"
-                  className="px-pop-input px-date"
-                  value={addDate}
-                  onChange={(e) => setAddDate(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') saveAddForm(); else if (e.key === 'Escape') closeAddForm(); }}
-                />
-                {addErr.date && <div className="notes-err">Required</div>}
-                {addDate && resolvePriceAtDate(addDate).outOfRange && (
-                  <div className="notes-warn">Date outside loaded range — using nearest available price</div>
-                )}
-                <div className="px-pop-label" style={{ marginTop: 8 }}>Note</div>
-                <input
-                  className="px-pop-input"
-                  autoFocus
-                  value={addNote}
-                  placeholder="e.g. Fed meeting, rebalance, dividend..."
-                  onChange={(e) => setAddNote(e.target.value)}
-                  onKeyDown={(e) => { if (e.key === 'Enter') saveAddForm(); else if (e.key === 'Escape') closeAddForm(); }}
-                />
-                {addErr.note && <div className="notes-err">Required</div>}
-                <div className="px-pop-actions">
-                  <span className="px-pop-spacer" />
-                  <button type="button" className="btn" onClick={closeAddForm}>Cancel</button>
-                  <button type="button" className="btn active" onClick={saveAddForm}>Save</button>
-                </div>
-              </div>
-              <div className="measure-div" />
-            </>
-          )}
-          <div ref={notesListRef}>
-            {annotations.length === 0 ? (
-              <div className="notes-empty">No notes yet. Right-click the chart to add a note.</div>
-            ) : (
-              annotations.map((a) => (
-                <div className="notes-row" key={a.id}>
-                  <span className="notes-date">{fmtDisplay(a.date)}</span>
-                  <span className="notes-text" onClick={(e) => openEditPopover(e.clientX, e.clientY, a)}>{a.text}</span>
-                  <button type="button" className="notes-act" title="Edit note" onClick={(e) => openEditPopover(e.clientX, e.clientY, a)}>✎</button>
-                  <button type="button" className="notes-act" title="Delete note" onClick={() => deleteAnnotation(a.id)}>×</button>
-                </div>
-              ))
-            )}
-          </div>
-        </div>
-      )}
 
       {analysis && (
         <div className="measure-panel">
@@ -1047,27 +959,28 @@ export default function PricesPage() {
         <div ref={popRef} className="px-pop" style={{ left: popover.left, top: popover.top, width: popover.width }}>
           <div className="px-pop-title">{popover.mode === 'add' ? 'Add note' : 'Edit note'}</div>
           <div className="px-pop-div" />
-          {popover.mode === 'edit' && (
-            <>
-              <div className="px-pop-label">Date</div>
-              <input
-                type="date"
-                className="px-pop-input px-date"
-                value={popoverDate}
-                onChange={(e) => setPopoverDate(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') savePopover(); else if (e.key === 'Escape') closePopover(); }}
-              />
-              <div className="px-pop-label" style={{ marginTop: 8 }}>Note</div>
-            </>
+          <div className="px-pop-label">Date</div>
+          <input
+            type="date"
+            className="px-pop-input px-date"
+            value={popoverDate}
+            onChange={(e) => setPopoverDate(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') savePopover(); else if (e.key === 'Escape') closePopover(); }}
+          />
+          {popoverErr.date && <div className="notes-err">Required</div>}
+          {popoverDate && resolvePriceAtDate(popoverDate).outOfRange && (
+            <div className="notes-warn">Outside loaded range — using nearest available price</div>
           )}
+          <div className="px-pop-label" style={{ marginTop: 8 }}>Note</div>
           <input
             className="px-pop-input"
             autoFocus
             value={popoverText}
-            placeholder="Note…"
+            placeholder="e.g. Fed meeting, rebalance, dividend..."
             onChange={(e) => setPopoverText(e.target.value)}
             onKeyDown={(e) => { if (e.key === 'Enter') savePopover(); else if (e.key === 'Escape') closePopover(); }}
           />
+          {popoverErr.note && <div className="notes-err">Required</div>}
           {popover.mode === 'edit' && popover.createdAt && (
             <div className="px-pop-meta">Added: {fmtStamp(popover.createdAt)}</div>
           )}
