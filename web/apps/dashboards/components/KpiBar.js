@@ -11,7 +11,7 @@ export default function KpiBar({ tiles }) {
       {tiles.map((t, i) => (
         <div className="kpi-tile" key={i}>
           <span className="kpi-label">{t.label}</span>
-          <span className={`kpi-value ${t.tone === 'pos' ? 'pos' : t.tone === 'neg' ? 'neg' : ''}`}>
+          <span className={`kpi-value ${t.tone === 'pos' ? 'pos' : t.tone === 'neg' ? 'neg' : ''}`} style={t.valueStyle}>
             {t.value}
           </span>
           {t.meta != null && t.meta !== '' && <span className="kpi-meta">{t.meta}</span>}

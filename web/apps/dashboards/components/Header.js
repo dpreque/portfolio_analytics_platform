@@ -1,7 +1,7 @@
 // web/apps/dashboards/components/Header.js
 // ---------------------------------------------------------------------------
 // Fixed top header: brand, portfolio selector, period control (quick buttons +
-// Custom date inputs), source selector, freshness indicator, theme toggle.
+// Custom date inputs), source selector, theme toggle.
 // All bound to DashboardProvider.
 // ---------------------------------------------------------------------------
 'use client';
@@ -95,10 +95,6 @@ export default function Header() {
       </div>
 
       <div className="spacer" />
-
-      <span className="freshness" title="Reference data — current as of the latest load">
-        <span className="dot" /> Data current
-      </span>
 
       <ThemeToggle />
     </header>

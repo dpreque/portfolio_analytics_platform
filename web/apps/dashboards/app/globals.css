@@ -119,11 +119,6 @@ a { color: inherit; text-decoration: none; }
 }
 .select:focus { outline: none; border-color: var(--blue); }
 
-/* freshness */
-.freshness { display: inline-flex; align-items: center; gap: 7px; font-size: 12px; color: var(--text-secondary); }
-.freshness .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--teal); box-shadow: 0 0 8px var(--teal); }
-.freshness.stale .dot { background: var(--amber); box-shadow: 0 0 8px var(--amber); }
-
 /* theme toggle (icon button in the header) */
 .theme-toggle { font-size: 14px; line-height: 1; padding: 7px 9px; }
 
@@ -443,3 +438,110 @@ tfoot th, tfoot td {
 /* ----- States --------------------------------------------------------------- */
 .error { color: var(--rose); font-weight: 600; }
 .loading { color: var(--text-secondary); padding: 20px 0; }
+
+/* ----- Positioning matrix --------------------------------------------------- */
+.pos-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; align-items: start; margin-bottom: 18px; }
+
+/* block tabs */
+.pos-tabs { display: flex; gap: 8px; margin-bottom: 12px; flex-wrap: wrap; }
+.pos-tab {
+  appearance: none; cursor: pointer; font-family: var(--font-sans); font-size: 12px; font-weight: 600;
+  background: transparent; border: 1px solid var(--s4); border-radius: 7px; padding: 7px 14px;
+}
+
+/* filter bar */
+.pos-bar { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; margin-bottom: 8px; }
+.pos-filters { display: flex; gap: 6px; flex-wrap: wrap; }
+.pos-bar-right { display: flex; gap: 6px; }
+.pos-guide { color: var(--text-secondary); font-family: var(--font-sans); font-size: 11px; margin: 4px 0 12px; }
+
+/* scroll container + table */
+.pos-wrap { position: relative; overflow: auto; max-height: 60vh; border: 1px solid var(--s4); border-radius: 10px; }
+.pos-table { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 13px; }
+.pos-table th, .pos-table td { padding: 8px 14px; white-space: nowrap; border-bottom: 1px solid var(--s4); }
+
+/* sticky grouped header (group row on top, column row below) */
+.pos-table thead th {
+  position: sticky; z-index: 3; background: var(--s3);
+  color: var(--text-secondary); font-weight: 600; font-size: 11px; text-transform: uppercase; letter-spacing: 0.4px;
+  text-align: right;
+}
+/* single header row (sleeve grouping removed) pins to the very top */
+.pos-table thead .pos-col th { top: 0; border-bottom: 2px solid var(--s4); }
+.pos-sortable { cursor: pointer; user-select: none; }
+.pos-sort-ind { margin-left: 4px; color: var(--text-muted); }
+.pos-sort-ind.on { color: var(--text-primary); }
+
+/* sticky left Category column */
+.pos-cat {
+  position: sticky; left: 0; z-index: 2; text-align: left !important;
+  background: var(--s2); color: var(--text-primary);
+  font-family: var(--font-sans); max-width: 240px; overflow: hidden; text-overflow: ellipsis;
+}
+.pos-table thead .pos-cat-head { z-index: 5; background: var(--s3); }
+
+/* section header rows */
+.pos-section td {
+  background: var(--s3); color: var(--text-primary);
+  font-weight: 700; font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px;
+}
+
+/* data rows */
+.pos-row { cursor: pointer; }
+.pos-table tbody .pos-row:hover td { background: var(--s2); }
+.pos-num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; color: var(--text-primary); }
+.pos-div { border-left: 1px solid var(--s4); }
+
+/* sticky Total row at the bottom */
+.pos-table tfoot .pos-total td {
+  position: sticky; bottom: 0; z-index: 3;
+  background: var(--s3); color: var(--text-primary); font-weight: 700; border-top: 2px solid var(--s4);
+}
+.pos-table tfoot .pos-total .pos-cat { z-index: 4; }
+
+/* slide-in detail panel */
+.pos-detail-overlay { position: fixed; inset: 0; z-index: 60; background: rgba(0, 0, 0, 0.25); }
+.pos-detail {
+  position: fixed; top: 0; right: 0; height: 100vh; width: 340px; z-index: 61;
+  background: var(--s1); border-left: 1px solid var(--s4); box-shadow: -8px 0 24px rgba(0, 0, 0, 0.4);
+  padding: 20px; overflow-y: auto; animation: posSlideIn 0.2s ease;
+}
+@keyframes posSlideIn { from { transform: translateX(100%); } to { transform: translateX(0); } }
+.pos-detail-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+.pos-detail-title { font-family: var(--font-sans); font-size: 14px; font-weight: 600; color: var(--text-primary); }
+.pos-detail-block { border: 1px solid var(--s4); border-radius: 6px; padding: 12px 14px; margin-bottom: 12px; }
+.pos-detail-block-title { font-size: 10px; text-transform: uppercase; letter-spacing: 0.6px; font-weight: 700; margin-bottom: 8px; }
+.pos-detail-row { display: flex; justify-content: space-between; line-height: 1.8; font-family: var(--font-mono); font-size: 12px; }
+.pos-detail-label { color: var(--text-muted); }
+.pos-detail-val { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+
+/* Absolute-table intensity text (no benchmark -> no over/underweight color) */
+.pos-num.pos-strong { color: var(--text-primary); font-weight: 600; }
+.pos-num.pos-soft { color: var(--text-secondary); }
+.pos-num.pos-zero { color: var(--text-muted); }
+/* detail panel: "all sleeves" sum row */
+.pos-detail-sum { border-top: 1px solid var(--s4); margin-top: 4px; padding-top: 4px; font-weight: 600; }
+
+/* ----- Collapsible pivot tree (positioning matrix body) --------------------- */
+.pt-row.pt-sub { cursor: pointer; }
+.pt-row.pt-leaf { cursor: default; }
+.pt-row:hover td { background: var(--s3); }
+/* per-level row background + top rule */
+.pt-l1 td { background: var(--s3); border-top: 1px solid var(--s4); }
+.pt-l2.pt-sub td { background: var(--s2); }
+.pt-l2.pt-leaf td, .pt-l3 td, .pt-l4 td { background: transparent; }
+/* label-cell typography + left border by level (the left border encodes depth) */
+.pt-l1 .pt-label { font-weight: 700; font-size: 12px; color: var(--text-primary); border-left: 3px solid var(--blue); }
+.pt-l2.pt-sub .pt-label { font-weight: 600; font-size: 12px; color: var(--text-primary); border-left: 3px solid var(--s4); }
+.pt-l2.pt-leaf .pt-label { font-weight: 400; font-size: 12px; color: var(--text-secondary); border-left: 3px solid var(--s4); }
+.pt-l3.pt-sub .pt-label { font-weight: 500; font-size: 11px; color: var(--text-primary); border-left: 3px solid transparent; }
+.pt-l3.pt-leaf .pt-label { font-weight: 400; font-size: 11px; color: var(--text-secondary); border-left: 3px solid transparent; }
+.pt-l4 .pt-label { font-weight: 400; font-size: 11px; color: var(--text-muted); }
+/* expand/collapse indicator, leaf spacer, collapsed descendant count */
+.pt-ind { color: var(--text-muted); font-size: 9px; margin-right: 5px; }
+.pt-spacer { display: inline-block; width: 14px; }
+.pt-count { font-size: 10px; color: var(--text-muted); font-style: italic; margin-left: 8px; }
+/* data cells */
+.pt-num { font-family: var(--font-mono); text-align: right; font-size: 11px; padding: 7px 12px; border-right: 1px solid var(--s3); }
+.pt-sub td.pt-num { font-weight: 600; }
+.pt-leaf td.pt-num { font-weight: 400; }
