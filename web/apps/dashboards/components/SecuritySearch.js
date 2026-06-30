@@ -36,7 +36,10 @@ function highlight(text, term) {
   );
 }
 
-export default function SecuritySearch({ value, onSelect, limit = 50 }) {
+// `autoSelectFirst` (default true) auto-picks the top result on mount so a chart
+// loads non-empty; the Comparación add-picker passes false so opening it doesn't
+// silently add a security.
+export default function SecuritySearch({ value, onSelect, limit = 50, autoSelectFirst = true }) {
   const [query, setQuery] = useState('');   // text shown in the input
   const [term, setTerm] = useState('');     // search string behind the current results (for highlight)
   const [results, setResults] = useState([]);
@@ -57,7 +60,7 @@ export default function SecuritySearch({ value, onSelect, limit = 50 }) {
     apiGet(`/api/securities?limit=${limit}`)
       .then((rows) => {
         setResults(rows);
-        if (!didInit.current && !value && rows.length) { didInit.current = true; onSelect(rows[0]); }
+        if (autoSelectFirst && !didInit.current && !value && rows.length) { didInit.current = true; onSelect(rows[0]); }
       })
       .catch(() => {});
   }, []); // eslint-disable-line react-hooks/exhaustive-deps

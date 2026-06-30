@@ -6,33 +6,39 @@
 // ---------------------------------------------------------------------------
 'use client';
 
+import { usePathname } from 'next/navigation';
 import { useDashboard } from './DashboardProvider';
 import ThemeToggle from './ThemeToggle';
 import { fmtDisplay } from '../lib/period';
 
 export default function Header() {
   const d = useDashboard();
+  const path = usePathname();
   if (!d) return null;
 
   const isCustom = d.period === 'Custom';
+  // the portfolio selector is irrelevant on the multi-security Comparación page
+  const hidePortfolio = path === '/comparacion' || path === '/comparacion/';
 
   return (
     <header className="header">
       <span className="brand">Profuturo Analytics</span>
 
-      <div className="hgroup">
-        <select
-          className="select"
-          value={d.portfolioId}
-          onChange={(e) => d.setPortfolioId(e.target.value)}
-          aria-label="Portfolio"
-        >
-          {d.portfolios.length === 0 && <option value="">Loading…</option>}
-          {d.portfolios.map((p) => (
-            <option key={p.portfolio_id} value={p.portfolio_id}>{p.display_name}</option>
-          ))}
-        </select>
-      </div>
+      {!hidePortfolio && (
+        <div className="hgroup">
+          <select
+            className="select"
+            value={d.portfolioId}
+            onChange={(e) => d.setPortfolioId(e.target.value)}
+            aria-label="Portfolio"
+          >
+            {d.portfolios.length === 0 && <option value="">Loading…</option>}
+            {d.portfolios.map((p) => (
+              <option key={p.portfolio_id} value={p.portfolio_id}>{p.display_name}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       <div className="period-control">
         <div className="period-group">

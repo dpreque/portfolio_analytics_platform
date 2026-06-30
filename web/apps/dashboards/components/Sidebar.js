@@ -15,6 +15,7 @@ const ITEMS = [
   { href: '/prices/', label: 'Prices' },
   { href: '/positioning/', label: 'Positioning' },
   { href: '/contribution/', label: 'Contribution' },
+  { href: '/comparacion/', label: 'Comparación' },
 ];
 const SOON = ['Attribution', 'Risk'];
 

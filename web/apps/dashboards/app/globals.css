@@ -545,3 +545,28 @@ tfoot th, tfoot td {
 .pt-num { font-family: var(--font-mono); text-align: right; font-size: 11px; padding: 7px 12px; border-right: 1px solid var(--s3); }
 .pt-sub td.pt-num { font-weight: 600; }
 .pt-leaf td.pt-num { font-weight: 400; }
+
+/* ----- Comparación (price comparison) --------------------------------------- */
+/* multi-security selector */
+.pc-select { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pc-select-lbl { font-size: 12px; color: var(--text-secondary); }
+.pc-chip { display: inline-flex; align-items: center; gap: 6px; background: var(--s2); border: 1px solid var(--s4); border-radius: 14px; padding: 4px 10px; font-size: 11px; font-family: var(--font-mono); color: var(--text-primary); }
+.pc-chip-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+.pc-chip-x { background: none; border: 0; cursor: pointer; color: var(--text-secondary); font-size: 13px; line-height: 1; padding: 0 2px; }
+.pc-chip-x:hover { color: var(--text-primary); }
+.pc-add-box { min-width: 240px; }
+.pc-max-msg { color: var(--amber); font-size: 11px; }
+
+/* summary cards (one per security) */
+.pc-cards { display: flex; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+.pc-card { background: var(--s2); border: 1px solid var(--s4); border-radius: 6px; padding: 14px 16px; min-width: 220px; flex: 1; }
+.pc-card-ticker { font-weight: 700; font-size: 13px; }
+.pc-card-name { font-size: 10px; color: var(--text-muted); margin-top: 1px; }
+.pc-card-div { border-top: 1px solid var(--s4); margin: 10px 0; }
+.pc-card-row { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; line-height: 1.6; }
+.pc-card-lbl { font-size: 10px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); }
+.pc-card-big { font-size: 18px; font-family: var(--font-mono); font-weight: 600; font-variant-numeric: tabular-nums; }
+.pc-card-note { color: var(--amber); font-size: 10px; margin-top: 6px; }
+.pc-card-se { display: grid; grid-template-columns: 40px 1fr auto; gap: 8px; align-items: baseline; font-size: 10px; font-family: var(--font-mono); color: var(--text-secondary); line-height: 1.9; }
+.pc-card-price { text-align: right; }
+.pc-card-date { color: var(--text-muted); }
