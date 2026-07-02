@@ -152,6 +152,12 @@ export default function ComparacionPage() {
     const annual = (Math.pow(1 + totalRet / 100, 365 / days) - 1) * 100;
     return { s: p.s, name, totalRet, annual, start, end };
   });
+  // best performer (highest total return) is the accent card
+  const bestId = (() => {
+    const valid = cards.filter((c) => !c.insufficient);
+    if (!valid.length) return null;
+    return valid.reduce((mx, c) => (c.totalRet > mx.totalRet ? c : mx), valid[0]).s.entity_id;
+  })();
 
   // --- chart traces (cumulative return) ------------------------------------
   const traces = prep.map((p) => {
@@ -336,7 +342,7 @@ export default function ComparacionPage() {
   const userAnnotations = annotations.map((a) => ({
     xref: 'x', yref: 'y', x: a.date, y: a.value, text: a.text,
     showarrow: true, arrowhead: 2, arrowsize: 1, arrowcolor: '#F5A623', ax: 0, ay: -40,
-    font: { color: '#F5A623', family: PLEX, size: 10 }, bgcolor: isLight ? '#F0F2F5' : '#1C2030', bordercolor: '#F5A623', borderpad: 5, borderwidth: 1, captureevents: true,
+    font: { color: '#F5A623', family: PLEX, size: 10 }, bgcolor: isLight ? '#FFFFFF' : '#1F1918', bordercolor: '#F5A623', borderpad: 5, borderwidth: 1, captureevents: true,
   }));
   const abAnnotations = [];
   if (pointA) abAnnotations.push({ x: pointA.date, xref: 'x', y: 1.02, yref: 'paper', text: 'A', showarrow: false, xanchor: 'center', yanchor: 'bottom', font: { color: '#5B8CFF', family: PLEX, size: 11 } });
@@ -413,18 +419,21 @@ export default function ComparacionPage() {
 
   return (
     <div>
-      <h1 className="page-title">Comparación</h1>
-      <p className="page-sub">Retorno acumulado de varios valores, indexado a 0% al inicio del período.</p>
+      <div className="page-brand-block">
+        <div className="page-brand-name">Profuturo Analytics</div>
+        <div className="page-dashboard-title">Comparison</div>
+      </div>
+      <p className="page-sub">Cumulative return of multiple securities, indexed to 0% at the start of the period.</p>
 
       {/* selector */}
       <div className="panel">
         <div className="pc-select">
-          <span className="pc-select-lbl">Comparando:</span>
+          <span className="pc-select-lbl">Comparing:</span>
           {securities.map((s) => (
             <span key={s.entity_id} className="pc-chip" style={{ borderColor: s.color }}>
               <span className="pc-chip-dot" style={{ background: s.color }} />
               {s.ticker}
-              <button type="button" className="pc-chip-x" onClick={() => removeSecurity(s.entity_id)} aria-label={`Quitar ${s.ticker}`}>×</button>
+              <button type="button" className="pc-chip-x" onClick={() => removeSecurity(s.entity_id)} aria-label={`Remove ${s.ticker}`}>×</button>
             </span>
           ))}
           {adding ? (
@@ -432,25 +441,27 @@ export default function ComparacionPage() {
               <SecuritySearch value={null} autoSelectFirst={false} onSelect={(sec) => addSecurity(sec)} />
             </div>
           ) : (
-            <button type="button" className="btn" onClick={() => { if (securities.length >= MAX_SECURITIES) { setMaxMsg(true); } else { setAdding(true); } }}>+ Agregar</button>
+            <button type="button" className="btn" onClick={() => { if (securities.length >= MAX_SECURITIES) { setMaxMsg(true); } else { setAdding(true); } }}>+ Add</button>
           )}
-          {maxMsg && <span className="pc-max-msg">Máximo 6 valores para comparar</span>}
+          {maxMsg && <span className="pc-max-msg">Maximum 6 securities</span>}
         </div>
       </div>
 
       {/* summary cards */}
       {cards.length > 0 && (
         <div className="pc-cards">
-          {cards.map((c) => (
-            <div key={c.s.entity_id} className="pc-card" style={{ borderLeft: `3px solid ${c.s.color}` }}>
-              <div className="pc-card-ticker" style={{ color: c.s.color }}>{c.s.ticker}</div>
+          {cards.map((c) => {
+            const isBest = c.s.entity_id === bestId;
+            return (
+            <div key={c.s.entity_id} className={`pc-card ${isBest ? 'accent' : ''}`} style={{ borderLeft: isBest ? 'none' : `3px solid ${c.s.color}` }}>
+              <div className="pc-card-ticker" style={{ color: isBest ? '#FFFFFF' : c.s.color }}>{c.s.ticker}{isBest ? ' ★' : ''}</div>
               <div className="pc-card-name">{c.name}</div>
               <div className="pc-card-div" />
               {c.insufficient ? (
                 <>
                   <div className="pc-card-row"><span className="pc-card-lbl">Total Return</span><span className="pc-card-big">—</span></div>
                   <div className="pc-card-row"><span className="pc-card-lbl">Annualized</span><span className="pc-card-big">—</span></div>
-                  <div className="pc-card-note">Datos insuficientes para el período</div>
+                  <div className="pc-card-note">Insufficient data</div>
                 </>
               ) : (
                 <>
@@ -462,14 +473,15 @@ export default function ComparacionPage() {
                 </>
               )}
             </div>
-          ))}
+            );
+          })}
         </div>
       )}
 
       {/* chart */}
       <div className="panel">
         {securities.length === 0 ? (
-          <div className="muted">Agrega valores para comparar.</div>
+          <div className="muted">Add securities to compare.</div>
         ) : (
           <>
             <div className="px-chart-wrap" ref={chartWrapRef} onContextMenu={handleContextMenu}>
@@ -492,7 +504,7 @@ export default function ComparacionPage() {
                   shapes: abShapes,
                   showlegend: false,
                   xaxis: { title: '', hoverformat: '%Y-%m-%d', ...X_SPIKE, ...(xRange ? { range: xRange, autorange: false } : { autorange: true }) },
-                  yaxis: { title: 'Retorno Acumulado (%)', zeroline: true, ...Y_SPIKE },
+                  yaxis: { title: 'Cumulative Return (%)', zeroline: true, ...Y_SPIKE },
                 }}
               />
 
@@ -505,7 +517,7 @@ export default function ComparacionPage() {
                         <div className="px-tip-div" />
                         <div className="px-tip-head" style={{ color: s.color }}>{s.ticker}</div>
                         <div className="px-tip-row"><span className="px-tip-label">Cumulative Return</span><span className={`px-tip-val ${s.cum == null ? '' : s.cum >= 0 ? 'pos' : 'neg'}`}>{sgn(s.cum)}</span></div>
-                        <div className="px-tip-row"><span className="px-tip-label">Day Return</span><span className={`px-tip-val ${s.dayRet == null ? '' : s.dayRet >= 0 ? 'pos' : 'neg'}`}>{s.dayRet == null ? '—' : sgn(s.dayRet * 100)}</span></div>
+                        <div className="px-tip-row"><span className="px-tip-label">Daily Return</span><span className={`px-tip-val ${s.dayRet == null ? '' : s.dayRet >= 0 ? 'pos' : 'neg'}`}>{s.dayRet == null ? '—' : sgn(s.dayRet * 100)}</span></div>
                       </div>
                     ))}
                   </div>
@@ -518,7 +530,7 @@ export default function ComparacionPage() {
                 {securities.map((s) => {
                   const off = hidden.has(s.entity_id);
                   return (
-                    <button key={s.entity_id} type="button" className={`legend-item ${off ? 'off' : ''}`} onClick={() => toggleSec(s.entity_id)} title={off ? 'Mostrar' : 'Ocultar'}>
+                    <button key={s.entity_id} type="button" className={`legend-item ${off ? 'off' : ''}`} onClick={() => toggleSec(s.entity_id)} title={off ? 'Show' : 'Hide'}>
                       <span className="legend-dot" style={{ background: s.color }} />
                       {s.ticker}
                     </button>
@@ -526,12 +538,12 @@ export default function ComparacionPage() {
                 })}
               </div>
               <div className="chart-zoom">
-                <button type="button" className={`btn ${analysing ? 'active' : ''}`} onClick={onAnalyseClick} title="Analizar el cambio entre dos puntos">
-                  {analysing ? 'Analizando — clic en dos puntos' : 'Analizar'}
+                <button type="button" className={`btn ${analysing ? 'active' : ''}`} onClick={onAnalyseClick} title="Analyse the change between two points">
+                  {analysing ? 'Analysing — click two points' : 'Analyse'}
                 </button>
-                <button type="button" className="btn" onClick={() => zoom(1 / 0.6)} title="Alejar">−</button>
-                <button type="button" className="btn" onClick={resetZoom} title="Restablecer">Reset</button>
-                <button type="button" className="btn" onClick={() => zoom(0.6)} title="Acercar">+</button>
+                <button type="button" className="btn" onClick={() => zoom(1 / 0.6)} title="Zoom out">−</button>
+                <button type="button" className="btn" onClick={resetZoom} title="Reset zoom">Reset</button>
+                <button type="button" className="btn" onClick={() => zoom(0.6)} title="Zoom in">+</button>
               </div>
             </div>
           </>
@@ -546,9 +558,9 @@ export default function ComparacionPage() {
               <span className="measure-title">ANALYSIS</span>
               <span className="measure-range">{formatDateLabel(analysis.startDate)} → {formatDateLabel(analysis.endDate)}</span>
             </div>
-            <button type="button" className="measure-close" onClick={dismissAnalysis} title="Cerrar" aria-label="Cerrar análisis">×</button>
+            <button type="button" className="measure-close" onClick={dismissAnalysis} title="Dismiss" aria-label="Dismiss analysis">×</button>
           </div>
-          <div className="measure-days">{analysis.days} días</div>
+          <div className="measure-days">{analysis.days} days</div>
           {analysis.sections.map((sec) => (
             <div key={sec.ticker}>
               <div className="measure-div" />
@@ -564,14 +576,14 @@ export default function ComparacionPage() {
 
       {/* table */}
       <div className="panel">
-        <div className="panel-title">Retornos</div>
+        <div className="panel-title">Returns</div>
         {securities.length && allDates.length ? (
           <>
             <div className="table-tools">
               <div />
               <div className="right" ref={cmpToolsRef}>
-                <button className="btn" onClick={exportCsv} title="Exportar columnas visibles como CSV">↓ CSV</button>
-                <button className="btn" onClick={() => setCmpChooser((v) => !v)} title="Mostrar / ocultar columnas">⊞ Columns</button>
+                <button className="btn" onClick={exportCsv} title="Export visible columns as CSV">↓ CSV</button>
+                <button className="btn" onClick={() => setCmpChooser((v) => !v)} title="Show / hide columns">⊞ Columns</button>
                 {cmpChooser && (
                   <div className="col-chooser">
                     {COLS.map((c) => (
@@ -592,7 +604,7 @@ export default function ComparacionPage() {
                 </colgroup>
                 <thead>
                   <tr className="cmp-grp">
-                    <th rowSpan={2} className="cmp-date cmp-sortable" onClick={cycleSort} title="Ordenar por fecha">
+                    <th rowSpan={2} className="cmp-date cmp-sortable" onClick={cycleSort} title="Sort by date">
                       Date <span className={`cmp-sort-ind ${sort ? 'on' : ''}`}>{sort === 'desc' ? '↓' : sort === 'asc' ? '↑' : '↕'}</span>
                     </th>
                     {cmpGroups.map((g, gi) => (
@@ -625,7 +637,7 @@ export default function ComparacionPage() {
             </div>
           </>
         ) : (
-          <div className="muted">Sin datos para los valores y el período seleccionados.</div>
+          <div className="muted">No data for the selected securities and period.</div>
         )}
       </div>
 
@@ -634,8 +646,8 @@ export default function ComparacionPage() {
         <div ref={ctxMenuRef} className="px-ctx" style={{ left: ctxMenu.x, top: ctxMenu.y }}>
           {ctxMenu.annoId ? (
             <>
-              <button type="button" className="px-ctx-item" onClick={() => { const m = ctxMenu; setCtxMenu(null); const a = annotationsRef.current.find((x) => x.id === m.annoId); if (a) openEditPopover(m.x, m.y, a); }}>Editar nota</button>
-              <button type="button" className="px-ctx-item" style={{ color: 'var(--rose)' }} onClick={() => { deleteAnnotation(ctxMenu.annoId); setCtxMenu(null); }}>Eliminar nota</button>
+              <button type="button" className="px-ctx-item" onClick={() => { const m = ctxMenu; setCtxMenu(null); const a = annotationsRef.current.find((x) => x.id === m.annoId); if (a) openEditPopover(m.x, m.y, a); }}>Edit note</button>
+              <button type="button" className="px-ctx-item" style={{ color: 'var(--rose)' }} onClick={() => { deleteAnnotation(ctxMenu.annoId); setCtxMenu(null); }}>Delete note</button>
             </>
           ) : (
             <>
@@ -656,21 +668,21 @@ export default function ComparacionPage() {
       {/* add/edit annotation popover */}
       {popover && typeof document !== 'undefined' && createPortal(
         <div ref={popRef} className="px-pop" style={{ left: popover.left, top: popover.top, width: popover.width }}>
-          <div className="px-pop-title">{popover.mode === 'add' ? 'Agregar nota' : 'Editar nota'}</div>
+          <div className="px-pop-title">{popover.mode === 'add' ? 'Add note' : 'Edit note'}</div>
           <div className="px-pop-div" />
-          <div className="px-pop-label">Fecha</div>
+          <div className="px-pop-label">Date</div>
           <input type="date" className="px-pop-input px-date" value={popoverDate} onChange={(e) => setPopoverDate(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') savePopover(); else if (e.key === 'Escape') closePopover(); }} />
-          {popoverErr.date && <div className="notes-err">Requerido</div>}
-          {popoverDate && resolveValAtDate(popoverDate).outOfRange && <div className="notes-warn">Fuera del rango cargado — usando el valor más cercano</div>}
-          <div className="px-pop-label" style={{ marginTop: 8 }}>Nota</div>
-          <input className="px-pop-input" autoFocus value={popoverText} placeholder="p. ej. earnings, split, evento macro..." onChange={(e) => setPopoverText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') savePopover(); else if (e.key === 'Escape') closePopover(); }} />
-          {popoverErr.note && <div className="notes-err">Requerido</div>}
-          {popover.mode === 'edit' && popover.createdAt && <div className="px-pop-meta">Agregada: {fmtStamp(popover.createdAt)}</div>}
+          {popoverErr.date && <div className="notes-err">Required</div>}
+          {popoverDate && resolveValAtDate(popoverDate).outOfRange && <div className="notes-warn">Outside loaded range — using nearest value</div>}
+          <div className="px-pop-label" style={{ marginTop: 8 }}>Note</div>
+          <input className="px-pop-input" autoFocus value={popoverText} placeholder="e.g. earnings, split, macro event..." onChange={(e) => setPopoverText(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') savePopover(); else if (e.key === 'Escape') closePopover(); }} />
+          {popoverErr.note && <div className="notes-err">Required</div>}
+          {popover.mode === 'edit' && popover.createdAt && <div className="px-pop-meta">Added: {fmtStamp(popover.createdAt)}</div>}
           <div className="px-pop-actions">
-            {popover.mode === 'edit' && <button type="button" className="px-pop-del" onClick={() => { deleteAnnotation(popover.id); closePopover(); }}>Eliminar</button>}
+            {popover.mode === 'edit' && <button type="button" className="px-pop-del" onClick={() => { deleteAnnotation(popover.id); closePopover(); }}>Delete</button>}
             <span className="px-pop-spacer" />
-            <button type="button" className="btn" onClick={closePopover}>Cancelar</button>
-            <button type="button" className="btn active" onClick={savePopover}>Guardar</button>
+            <button type="button" className="btn" onClick={closePopover}>Cancel</button>
+            <button type="button" className="btn active" onClick={savePopover}>Save</button>
           </div>
         </div>,
         document.body,

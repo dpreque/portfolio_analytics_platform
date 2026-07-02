@@ -4,8 +4,8 @@
 // pivot tree across three sleeves (PRO1/PRO2/PRO3), in two views: Absolute
 // weights and Duration contribution.
 //
-// Content is permanently in Spanish; technical column identifiers (PRO1,
-// DurPRO1, Category) stay in English.
+// Content is in English; technical column identifiers (PRO1, DurPRO1, Category)
+// and currency/country codes stay as-is.
 //
 // DATA NOTE: the wired toy API has 4 generic Mexican portfolios and none of
 // this hierarchy. The tree below is hard-coded with DETERMINISTIC SYNTHETIC
@@ -28,11 +28,11 @@ const CASH_AMBER_THRESHOLD = 0.10; // Posición en Caja KPI turns amber above th
 const INDENT = { 1: 12, 2: 28, 3: 44, 4: 60 };
 
 const BLOCK_META = {
-  absolute: { tab: 'Posicionamiento Absoluto', accent: '#5B8CFF', guide: 'Cada celda = peso de (categoría) en el sleeve PRO(1/2/3)' },
-  duration: { tab: 'Matriz de Duración', accent: '#C9A84C', guide: 'Cada celda = contribución de duración por (categoría, sleeve)' },
+  absolute: { tab: 'Absolute Positioning', accent: '#5B8CFF', guide: 'Each cell = weight of (category) in sleeve PRO(1/2/3)' },
+  duration: { tab: 'Duration Matrix', accent: '#C9A84C', guide: 'Each cell = duration contribution by (category, sleeve)' },
 };
 const SLEEVE_COLOR = ['#5B8CFF', '#5FD7B0', '#D9BE6E'];
-const FILTERS = [['all', 'Todos'], ['asset', 'Clase de Activo'], ['currency', 'Moneda'], ['region', 'Región'], ['strategy', 'Estrategia']];
+const FILTERS = [['all', 'All'], ['asset', 'Asset Class'], ['currency', 'Currency'], ['region', 'Region'], ['strategy', 'Strategy']];
 
 // node builders. leaf carries abs/dur per sleeve; sub aggregates its children.
 const leaf = (key, label, level, abs, dur, group) => ({ key, label, level, collapsible: false, children: [], abs, dur, group });
@@ -40,15 +40,15 @@ const sub = (key, label, level, children, group) => ({ key, label, level, collap
 
 // ---- the exact hierarchy (hard-coded, no inferred/repeated subtrees) -------
 const TREE = [
-  sub('RF', 'RF', 1, [
+  sub('RF', 'RF — Fixed Income', 1, [
     sub('RF.USD', 'USD', 2, [
       leaf('RF.USD.Treasury', 'Treasury', 3, [0.16, 0.12, 0.09], [1.10, 0.90, 0.65]),
-      leaf('RF.USD.Credito', 'Crédito', 3, [0.08, 0.06, 0.04], [0.40, 0.30, 0.20]),
+      leaf('RF.USD.Credito', 'Credit (USD)', 3, [0.08, 0.06, 0.04], [0.40, 0.30, 0.20]),
     ], 'ccy'),
     sub('RF.LocalCurrency', 'Local Currency', 2, [
       sub('RF.LocalCurrency.PEN', 'PEN', 3, [
-        leaf('RF.LocalCurrency.PEN.Soberanos', 'Soberanos', 4, [0.12, 0.09, 0.05], [0.80, 0.60, 0.40]),
-        leaf('RF.LocalCurrency.PEN.Credito', 'Crédito', 4, [0.06, 0.04, 0.03], [0.30, 0.25, 0.15]),
+        leaf('RF.LocalCurrency.PEN.Soberanos', 'Sovereign Bonds', 4, [0.12, 0.09, 0.05], [0.80, 0.60, 0.40]),
+        leaf('RF.LocalCurrency.PEN.Credito', 'Credit (PEN)', 4, [0.06, 0.04, 0.03], [0.30, 0.25, 0.15]),
       ], 'ccy'),
       sub('RF.LocalCurrency.Latam', 'Latam', 3, [
         leaf('RF.LocalCurrency.Latam.MXN', 'MXN', 4, [0.04, 0.03, 0.02], [0.20, 0.15, 0.10], 'country'),
@@ -60,34 +60,34 @@ const TREE = [
       leaf('RF.LocalCurrency.Global', 'Global', 3, [0.06, 0.05, 0.03], [0.30, 0.25, 0.18], 'region'),
     ], 'ccy'),
   ]),
-  sub('RV', 'RV', 1, [
-    sub('RV.RVExterior', 'RV Exterior', 2, [
+  sub('RV', 'RV — Equities', 1, [
+    sub('RV.RVExterior', 'Foreign Equities', 2, [
       leaf('RV.RVExterior.Global', 'Global', 3, [0.02, 0.04, 0.06], [0, 0, 0]),
-      leaf('RV.RVExterior.EEUU', 'EEUU', 3, [0.04, 0.07, 0.10], [0, 0, 0]),
-      leaf('RV.RVExterior.Europa', 'Europa', 3, [0.02, 0.03, 0.05], [0, 0, 0]),
-      leaf('RV.RVExterior.Japon', 'Japón', 3, [0.01, 0.02, 0.03], [0, 0, 0]),
+      leaf('RV.RVExterior.EEUU', 'USA', 3, [0.04, 0.07, 0.10], [0, 0, 0]),
+      leaf('RV.RVExterior.Europa', 'Europe', 3, [0.02, 0.03, 0.05], [0, 0, 0]),
+      leaf('RV.RVExterior.Japon', 'Japan', 3, [0.01, 0.02, 0.03], [0, 0, 0]),
       leaf('RV.RVExterior.Commodities', 'Commodities', 3, [0.01, 0.02, 0.03], [0, 0, 0]),
-      sub('RV.RVExterior.Emergentes', 'Emergentes', 3, [
-        leaf('RV.RVExterior.Emergentes.Brasil', 'Brasil', 4, [0.006, 0.012, 0.018], [0, 0, 0]),
-        leaf('RV.RVExterior.Emergentes.RestoLatam', 'Resto de Latam', 4, [0.004, 0.008, 0.012], [0, 0, 0]),
+      sub('RV.RVExterior.Emergentes', 'Emerging Markets', 3, [
+        leaf('RV.RVExterior.Emergentes.Brasil', 'Brazil', 4, [0.006, 0.012, 0.018], [0, 0, 0]),
+        leaf('RV.RVExterior.Emergentes.RestoLatam', 'Rest of LatAm', 4, [0.004, 0.008, 0.012], [0, 0, 0]),
         leaf('RV.RVExterior.Emergentes.China', 'China', 4, [0.005, 0.010, 0.015], [0, 0, 0]),
-        leaf('RV.RVExterior.Emergentes.Corea', 'Corea', 4, [0.003, 0.006, 0.009], [0, 0, 0]),
-        leaf('RV.RVExterior.Emergentes.RestoAsiaEM', 'Resto de Asia EM', 4, [0.002, 0.004, 0.006], [0, 0, 0]),
+        leaf('RV.RVExterior.Emergentes.Corea', 'Korea', 4, [0.003, 0.006, 0.009], [0, 0, 0]),
+        leaf('RV.RVExterior.Emergentes.RestoAsiaEM', 'Rest of EM Asia', 4, [0.002, 0.004, 0.006], [0, 0, 0]),
       ]),
     ]),
-    sub('RV.RVLocal', 'RV Local', 2, [
-      leaf('RV.RVLocal.Financiero', 'Financiero', 3, [0.03, 0.05, 0.07], [0, 0, 0]),
-      leaf('RV.RVLocal.NoFinanciero', 'No Financiero', 3, [0.03, 0.05, 0.06], [0, 0, 0]),
-      leaf('RV.RVLocal.Fondos', 'Fondos', 3, [0.02, 0.03, 0.04], [0, 0, 0]),
+    sub('RV.RVLocal', 'Local Equities', 2, [
+      leaf('RV.RVLocal.Financiero', 'Financials', 3, [0.03, 0.05, 0.07], [0, 0, 0]),
+      leaf('RV.RVLocal.NoFinanciero', 'Non-Financials', 3, [0.03, 0.05, 0.06], [0, 0, 0]),
+      leaf('RV.RVLocal.Fondos', 'Funds', 3, [0.02, 0.03, 0.04], [0, 0, 0]),
     ]),
   ]),
-  sub('Alts', 'Alts', 1, [
-    leaf('Alts.AltExterior', 'Alternativos Exterior', 2, [0.07, 0.09, 0.10], [0.25, 0.30, 0.28]),
-    leaf('Alts.AltLocal', 'Alternativos Local', 2, [0.05, 0.06, 0.06], [0.20, 0.25, 0.22]),
+  sub('Alts', 'Alts — Alternatives', 1, [
+    leaf('Alts.AltExterior', 'Foreign Alternatives', 2, [0.07, 0.09, 0.10], [0.25, 0.30, 0.28]),
+    leaf('Alts.AltLocal', 'Local Alternatives', 2, [0.05, 0.06, 0.06], [0.20, 0.25, 0.22]),
   ]),
-  sub('Caja', 'Caja', 1, [
-    leaf('Caja.Depositos', 'Depósitos', 2, [0.06, 0.04, 0.03], [0, 0, 0]),
-    leaf('Caja.EnTransito', 'En Tránsito', 2, [0.02, 0.01, 0.01], [0, 0, 0]),
+  sub('Caja', 'Cash', 1, [
+    leaf('Caja.Depositos', 'Deposits', 2, [0.06, 0.04, 0.03], [0, 0, 0]),
+    leaf('Caja.EnTransito', 'In Transit', 2, [0.02, 0.01, 0.01], [0, 0, 0]),
   ]),
 ];
 
@@ -108,6 +108,18 @@ const TOP = Object.fromEntries(TREE.map((n) => [n.key, n]));
 const ALL_COLLAPSIBLE_KEYS = FLAT.filter((n) => n.collapsible).map((n) => n.key);
 const GT_ABS = [0, 1, 2].map((i) => TREE.reduce((s, n) => s + n.abs[i], 0));
 const GT_DUR = [0, 1, 2].map((i) => TREE.reduce((s, n) => s + n.dur[i], 0));
+
+// Deterministic 30-point trend around a seed value (positioning data is a
+// synthetic snapshot with no history — this renders a stable KPI sparkline).
+function synthSpark(seed, n = 30) {
+  const out = [];
+  for (let i = 0; i < n; i++) {
+    const trend = 0.9 + 0.1 * (i / (n - 1));           // gentle drift toward the value
+    const wiggle = Math.sin((i + 1) * (seed * 6.283 + 1)) * 0.04;
+    out.push(seed * (trend + wiggle));
+  }
+  return out;
+}
 
 export default function PositioningPage() {
   const { portfolioId, range } = useDashboard();
@@ -157,10 +169,10 @@ export default function PositioningPage() {
   const cashPro1 = TOP.Caja.abs[0];
   const kpis = [
     { label: 'AUM Total', value: aum != null ? num(aum, 0) : '—', meta: aumMeta || '—' },
-    { label: 'Exposición RV', value: pct(TOP.RV.abs[0]), meta: 'RV — PRO1' },
-    { label: 'Exposición RF', value: pct(TOP.RF.abs[0]), meta: 'RF — PRO1' },
-    { label: 'Posición en Caja', value: pct(cashPro1), meta: 'Caja — PRO1', valueStyle: cashPro1 > CASH_AMBER_THRESHOLD ? { color: 'var(--amber)' } : undefined },
-    { label: 'Duración Portafolio', value: `${GT_DUR[0].toFixed(2)}yr`, meta: 'Duración · PRO1', valueStyle: { color: 'var(--amber)' } },
+    { label: 'Equity Exposure', value: pct(TOP.RV.abs[0]), meta: 'RV — PRO1', spark: synthSpark(TOP.RV.abs[0]) },
+    { label: 'Fixed Income Exposure', value: pct(TOP.RF.abs[0]), meta: 'RF — PRO1' },
+    { label: 'Cash Position', value: pct(cashPro1), meta: 'Cash — PRO1', valueStyle: cashPro1 > CASH_AMBER_THRESHOLD ? { color: 'var(--warning)' } : undefined, spark: synthSpark(cashPro1) },
+    { label: 'Portfolio Duration', value: `${GT_DUR[0].toFixed(2)}yr`, meta: 'Duration · PRO1', accent: true, spark: synthSpark(GT_DUR[0]) },
   ];
 
   // --- chart: asset-class exposure by sleeve (grouped bars) ----------------
@@ -216,7 +228,7 @@ export default function PositioningPage() {
   const exportCsv = () => {
     const headers = ['Level', 'Label', ...[0, 1, 2].map(colLabel)];
     const rows = FLAT.map((n) => [n.level, n.label, ...[0, 1, 2].map((i) => csvVal(nodeVal(n, i)))]);
-    rows.push(['', 'Total general', ...[0, 1, 2].map((i) => csvVal(block === 'absolute' ? GT_ABS[i] : GT_DUR[i]))]);
+    rows.push(['', 'Grand Total', ...[0, 1, 2].map((i) => csvVal(block === 'absolute' ? GT_ABS[i] : GT_DUR[i]))]);
     downloadCsv(`posicionamiento_${block}_${range.to}`, headers, rows);
   };
 
@@ -224,14 +236,17 @@ export default function PositioningPage() {
 
   return (
     <div>
-      <h1 className="page-title">Positioning</h1>
-      <p className="page-sub">Matriz de sleeves PRO — pesos absolutos y contribución de duración.</p>
+      <div className="page-brand-block">
+        <div className="page-brand-name">Profuturo Analytics</div>
+        <div className="page-dashboard-title">Positioning</div>
+      </div>
+      <p className="page-sub">PRO sleeve matrix — absolute weights and duration contribution.</p>
 
       <KpiBar tiles={kpis} />
 
-      {/* exposición por clase de activo */}
+      {/* asset class exposure */}
       <div className="panel">
-        <div className="panel-title">Exposición por Clase de Activo</div>
+        <div className="panel-title">Asset Class Exposure</div>
         <PlotlyChart
           data={barTraces}
           layout={{ barmode: 'group', showlegend: true, legend: { orientation: 'h', y: -0.18 }, yaxis: { ticksuffix: '%' }, margin: { l: 48, r: 16, t: 10, b: 40 } }}
@@ -262,12 +277,12 @@ export default function PositioningPage() {
             ))}
           </div>
           <div className="pos-bar-right">
-            <button type="button" className="btn" onClick={() => setCollapsed(new Set())}>Expandir todo</button>
-            <button type="button" className="btn" onClick={() => setCollapsed(new Set(ALL_COLLAPSIBLE_KEYS))}>Colapsar todo</button>
-            <button type="button" className={`btn ${heatMap ? 'active' : ''}`} onClick={() => setHeatMap((v) => !v)} title="Colorear celdas por magnitud">
-              Mapa de calor · {heatMap ? 'Activo' : 'Inactivo'}
+            <button type="button" className="btn" onClick={() => setCollapsed(new Set())}>Expand all</button>
+            <button type="button" className="btn" onClick={() => setCollapsed(new Set(ALL_COLLAPSIBLE_KEYS))}>Collapse all</button>
+            <button type="button" className={`btn ${heatMap ? 'active' : ''}`} onClick={() => setHeatMap((v) => !v)} title="Color cells by magnitude">
+              Heat map · {heatMap ? 'On' : 'Off'}
             </button>
-            <button type="button" className="btn" onClick={exportCsv} title="Exportar el bloque activo como CSV">↓ Exportar CSV</button>
+            <button type="button" className="btn" onClick={exportCsv} title="Export the active block as CSV">↓ Export CSV</button>
           </div>
         </div>
 
@@ -308,10 +323,10 @@ export default function PositioningPage() {
             </tbody>
             <tfoot>
               <tr className="pos-total pt-total">
-                <td className="pos-cat" style={{ fontFamily: 'var(--font-mono)' }}>Total general</td>
+                <td className="pos-cat" style={{ fontFamily: 'var(--font-mono)' }}>Grand Total</td>
                 {[0, 1, 2].map((i) => {
                   const v = block === 'absolute' ? GT_ABS[i] : GT_DUR[i];
-                  return <td key={i} className="pos-num pt-num" style={block === 'duration' ? { color: '#F5A623' } : undefined}>{fmtCell(v)}</td>;
+                  return <td key={i} className="pos-num pt-num" style={block === 'duration' ? { color: 'var(--warning)' } : undefined}>{fmtCell(v)}</td>;
                 })}
               </tr>
             </tfoot>
@@ -326,11 +341,11 @@ export default function PositioningPage() {
           <div className="pos-detail">
             <div className="pos-detail-head">
               <span className="pos-detail-title">{detailRow.label}</span>
-              <button type="button" className="measure-close" onClick={() => setDetailRow(null)} aria-label="Cerrar detalle">×</button>
+              <button type="button" className="measure-close" onClick={() => setDetailRow(null)} aria-label="Close detail">×</button>
             </div>
 
             <div className="pos-detail-block">
-              <div className="pos-detail-block-title" style={{ color: BLOCK_META.absolute.accent }}>Posicionamiento Absoluto</div>
+              <div className="pos-detail-block-title" style={{ color: BLOCK_META.absolute.accent }}>Absolute Positioning</div>
               {[0, 1, 2].map((i) => (
                 <div className="pos-detail-row" key={i}>
                   <span className="pos-detail-label">{SLEEVES[i]}</span>
@@ -338,13 +353,13 @@ export default function PositioningPage() {
                 </div>
               ))}
               <div className="pos-detail-row pos-detail-sum">
-                <span className="pos-detail-label">Total exposición (suma de sleeves)</span>
+                <span className="pos-detail-label">Total exposure (sum)</span>
                 <span className="pos-detail-val">{((detailRow.abs[0] + detailRow.abs[1] + detailRow.abs[2]) * 100).toFixed(2)}%</span>
               </div>
             </div>
 
             <div className="pos-detail-block">
-              <div className="pos-detail-block-title" style={{ color: BLOCK_META.duration.accent }}>Contribución de Duración</div>
+              <div className="pos-detail-block-title" style={{ color: BLOCK_META.duration.accent }}>Duration Contribution</div>
               {[0, 1, 2].map((i) => (
                 <div className="pos-detail-row" key={i}>
                   <span className="pos-detail-label">Dur{SLEEVES[i]}</span>

@@ -223,10 +223,16 @@ export default function PricesPage() {
   const latest = series.map((s) => s.points[s.points.length - 1]?.price).filter((v) => v != null);
   const spread = latest.length > 1 ? (Math.max(...latest) - Math.min(...latest)) / (latest.reduce((a, b) => a + b, 0) / latest.length) : 0;
 
+  // sparkline inputs from the primary series (last 30 priced points)
+  const primaryPts = (primary?.points || []).filter((p) => p.price != null);
+  const priceSpark = primaryPts.slice(-30).map((p) => p.price);
+  const spark0 = primaryPts[0]?.price;
+  const retSpark = spark0 ? primaryPts.slice(-30).map((p) => (p.price / spark0 - 1) * 100) : null;
+
   const kpis = [
     { label: 'Security', value: entity?.ticker || entity?.display_name || '—', meta: entity?.display_name || '' },
-    { label: 'Latest Price', value: lastPt ? num(lastPt.price, 4) : '—', meta: lastPt ? `${primary.source} · ${lastPt.date}` : '' },
-    { label: 'Period Return', value: periodRet != null ? pct(periodRet) : '—', tone: periodRet >= 0 ? 'pos' : 'neg', meta: 'window' },
+    { label: 'Latest Price', value: lastPt ? num(lastPt.price, 4) : '—', meta: lastPt ? `${primary.source} · ${lastPt.date}` : '', accent: true, spark: priceSpark },
+    { label: 'Period Return', value: periodRet != null ? pct(periodRet) : '—', tone: periodRet >= 0 ? 'pos' : 'neg', meta: 'window', spark: retSpark },
     { label: 'Sources', value: series.length <= 1 ? 'Single' : (spread > 0.0025 ? 'Diverge' : 'Agree'), meta: `${series.length} src · ${(spread * 100).toFixed(2)}% spread` },
   ];
 
@@ -597,7 +603,7 @@ export default function PricesPage() {
     xref: 'x', yref: 'y', x: a.date, y: a.price, text: a.text,
     showarrow: true, arrowhead: 2, arrowsize: 1, arrowcolor: '#F5A623', ax: 0, ay: -40,
     font: { color: '#F5A623', family: PLEX, size: 10 },
-    bgcolor: isLight ? '#F0F2F5' : '#1C2030', bordercolor: '#F5A623', borderpad: 5, borderwidth: 1,
+    bgcolor: isLight ? '#FFFFFF' : '#1F1918', bordercolor: '#F5A623', borderpad: 5, borderwidth: 1,
     captureevents: true,
   }));
   const analyseAnnotations = [];
@@ -698,7 +704,10 @@ export default function PricesPage() {
 
   return (
     <div>
-      <h1 className="page-title">Price Viewer</h1>
+      <div className="page-brand-block">
+        <div className="page-brand-name">Profuturo Analytics</div>
+        <div className="page-dashboard-title">Price Viewer</div>
+      </div>
       <p className="page-sub">Daily prices for one security, one line per source.</p>
 
       <KpiBar tiles={kpis} />
